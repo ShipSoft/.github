@@ -8,7 +8,7 @@ The SHiP software is built using [aliBuild](https://github.com/alisw/alibuild) u
 
 Releases of the SHiP software stack on CVMFS are tracked in [cvmfs_release](https://github.com/ShipSoft/cvmfs_release).
 
-## Orgnaisation
+## Organisation
 
 Meeting can be found in the [SHiP Software](https://indico.cern.ch/category/9389/) Indico category. Regular meeting will resume in May 2024.
 
