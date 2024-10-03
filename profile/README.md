@@ -10,7 +10,7 @@ Releases of the SHiP software stack on CVMFS are tracked in [cvmfs_release](http
 
 ## Organisation
 
-Meeting can be found in the [SHiP Software](https://indico.cern.ch/category/9389/) Indico category. Regular meeting will resume in May 2024.
+Meeting can be found in the [SHiP Software](https://indico.cern.ch/category/9389/) Indico category, there is a weekly meeting every Monday 11:00 CERN time.
 
 For general discussion, please make sure that you are subscribed to the [ship-software](https://e-groups.cern.ch/e-groups/Egroup.do?egroupId=10124506) e-group. A [Mattermost](https://mattermost.web.cern.ch/ship/channels/software) channel is also available.
 
