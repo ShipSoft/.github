@@ -1,0 +1,61 @@
+name: Doxygen GitHub Pages (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      doxyfile:
+        description: Path to the Doxyfile
+        type: string
+        default: doxygen/Doxyfile
+      html-dir:
+        description: Path to the generated HTML output directory
+        type: string
+        default: doxygen/html
+      preserve:
+        description: |
+          Space-separated names of top-level paths under gh-pages to preserve
+          (in addition to `.git` and `.nojekyll`). Example: "plots downloads".
+        type: string
+        default: plots
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: gh-pages-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Doxygen and Graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz doxygen
+      - name: Generate Doxygen
+        run: doxygen "${{ inputs.doxyfile }}"
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          path: gh-pages-checkout
+      - name: Refresh gh-pages content
+        env:
+          PRESERVE: ${{ inputs.preserve }}
+          HTML_DIR: ${{ inputs.html-dir }}
+        run: |
+          cd gh-pages-checkout
+          preserve_args=( -not -name '.' -not -name '.git' -not -name '.nojekyll' )
+          for keep in $PRESERVE; do
+            preserve_args+=( -not -name "$keep" )
+          done
+          find . -maxdepth 1 "${preserve_args[@]}" -exec rm -rf {} +
+          cp -r "../$HTML_DIR/"* .
+          touch .nojekyll
+      - name: Commit and push
+        run: |
+          cd gh-pages-checkout
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet && echo "No changes" && exit 0
+          git commit -m "Deploy Doxygen from ${{ github.sha }}"
+          git push
