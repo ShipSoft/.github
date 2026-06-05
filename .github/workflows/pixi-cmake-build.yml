@@ -5,8 +5,9 @@ on:
     inputs:
       tasks:
         description: |
-          JSON array of pixi task names to run in order with `pixi run --locked`.
-          Example: '["configure","build","test"]'.
+          JSON array of pixi task invocations to run in order with `pixi run --locked`.
+          Each element is shell word-split, so positional pixi args are supported:
+          '["configure", "build", "test", "ci-sim helium"]'.
         type: string
         default: '["test"]'
       lfs:
@@ -51,6 +52,7 @@ jobs:
         run: |
           echo "$TASKS_JSON" | jq -r '.[]' | while IFS= read -r task; do
             echo "::group::pixi run --locked $task"
-            pixi run --locked "$task"
+            # shellcheck disable=SC2086 # intentional word-splitting for positional task args
+            pixi run --locked $task
             echo "::endgroup::"
           done
