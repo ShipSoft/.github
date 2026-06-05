@@ -41,11 +41,14 @@ jobs:
   build:
     uses: ShipSoft/.github/.github/workflows/pixi-cmake-build.yml@main
     with:
-      tasks: '["configure","build","test"]'
+      tasks: '["configure","build","test","ci-sim helium"]'
       lfs: true
       env-vars: |
         QT_QPA_PLATFORM=offscreen
 ```
+
+Each `tasks` element is shell word-split, so positional pixi task args
+(e.g. `ci-sim helium`) work directly.
 
 Inputs: `tasks` (JSON array, default `'["test"]'`), `lfs`, `runs-on`,
 `cache`, `env-vars`.
