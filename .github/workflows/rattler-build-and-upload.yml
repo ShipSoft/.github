@@ -1,0 +1,136 @@
+name: Rattler build and upload (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      recipe-dir:
+        description: Directory containing recipe.yaml files (with subdirectories).
+        type: string
+        default: 'recipes/'
+      recipe:
+        description: |
+          Single recipe directory name to build (e.g. "random123"). When set,
+          overrides recipe-dir and rattler-build pulls dependencies from the
+          configured channels. Leave empty to build all recipes under recipe-dir.
+        type: string
+        default: ''
+      force:
+        description: Drop --skip-existing (use to rebuild on the same version).
+        type: boolean
+        default: false
+      upload:
+        description: Upload built packages to prefix.dev/<channel-name>.
+        type: boolean
+        default: false
+      channel-name:
+        description: prefix.dev channel name to upload to (when upload=true).
+        type: string
+        default: ship
+      extra-channels:
+        description: Newline-separated channels to pass via --channel during build.
+        type: string
+        default: |
+          https://prefix.dev/ship
+          conda-forge
+      artifact-retention-days:
+        description: Days to keep the built-package artifact on PR runs.
+        type: number
+        default: 7
+    secrets:
+      prefix-dev-api-key:
+        description: prefix.dev API key. Required when upload=true.
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: prefix-dev/setup-pixi@v0.9.6
+        with:
+          locked: true  # fails the job if pixi.lock is dirty
+
+      - name: Build with rattler-build
+        env:
+          INPUT_RECIPE_DIR: ${{ inputs.recipe-dir }}
+          INPUT_RECIPE: ${{ inputs.recipe }}
+          INPUT_FORCE: ${{ inputs.force }}
+          INPUT_CHANNELS: ${{ inputs.extra-channels }}
+        run: |
+          set -euo pipefail
+
+          channel_args=()
+          while IFS= read -r ch; do
+            ch="${ch//[$'\t\r ']}"
+            [ -z "$ch" ] && continue
+            channel_args+=(--channel "$ch")
+          done <<< "$INPUT_CHANNELS"
+
+          skip_args=(--skip-existing=all)
+          if [ "$INPUT_FORCE" = "true" ]; then
+            skip_args=()
+          fi
+
+          if [ -n "$INPUT_RECIPE" ]; then
+            target=(--recipe "${INPUT_RECIPE_DIR%/}/$INPUT_RECIPE")
+          else
+            target=(--recipe-dir "$INPUT_RECIPE_DIR")
+          fi
+
+          pixi run rattler-build build "${target[@]}" "${channel_args[@]}" "${skip_args[@]}"
+
+      - name: Build summary
+        if: always()
+        run: |
+          {
+            echo "## Build summary"
+            echo
+            shopt -s nullglob
+            files=(output/linux-64/*.conda output/noarch/*.conda)
+            if [ "${#files[@]}" -eq 0 ]; then
+              echo "_No \`.conda\` artifacts produced._"
+            else
+              echo "Built ${#files[@]} package(s)."
+              echo
+              echo "| File | Size |"
+              echo "|------|------|"
+              for f in "${files[@]}"; do
+                size=$(stat -c%s "$f")
+                if [ "$size" -ge 1048576 ]; then
+                  hsize="$(awk -v s="$size" 'BEGIN{printf "%.1f MiB", s/1048576}')"
+                else
+                  hsize="$(awk -v s="$size" 'BEGIN{printf "%.0f KiB", s/1024}')"
+                fi
+                echo "| \`$(basename "$f")\` | $hsize |"
+              done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload PR build artifact
+        if: ${{ !inputs.upload }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: conda-packages
+          path: |
+            output/linux-64/*.conda
+            output/noarch/*.conda
+          if-no-files-found: ignore
+          retention-days: ${{ inputs.artifact-retention-days }}
+
+      - name: Upload to prefix.dev
+        if: ${{ inputs.upload }}
+        env:
+          PREFIX_DEV_API_KEY: ${{ secrets.prefix-dev-api-key }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          uploaded=0
+          for pkg in output/linux-64/*.conda output/noarch/*.conda; do
+            pixi run rattler-build upload prefix \
+              --api-key "$PREFIX_DEV_API_KEY" \
+              -c "${{ inputs.channel-name }}" \
+              --skip-existing "$pkg"
+            uploaded=$((uploaded + 1))
+          done
+          echo "Uploaded $uploaded package(s) to prefix.dev/${{ inputs.channel-name }}."
