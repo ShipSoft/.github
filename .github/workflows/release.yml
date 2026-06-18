@@ -1,0 +1,35 @@
+name: Release (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      cliff-config:
+        description: Path to the git-cliff config in the caller repo
+        type: string
+        default: cliff.toml
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: ${{ inputs.cliff-config }}
+          args: --latest --strip header --tag ${{ github.ref_name }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: ${{ steps.cliff.outputs.changelog }}
+          draft: false
+          prerelease: false

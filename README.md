@@ -74,6 +74,28 @@ jobs:
 
 Inputs: `doxyfile`, `html-dir`, `preserve`.
 
+### `release.yml`
+
+Publishes a GitHub Release for a pushed tag. Generates the release body
+from conventional commits via [git-cliff](https://git-cliff.org/) using
+the caller repo's `cliff.toml`. Pairs with a local release script that
+bumps the version, regenerates the changelog and pushes the tag.
+
+```yaml
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  release:
+    uses: ShipSoft/.github/.github/workflows/release.yml@main
+    permissions:
+      contents: write
+```
+
+Inputs: `cliff-config` (default `cliff.toml`).
+
 ## Versioning
 
 Reusable workflows are referenced via `@main`. Pin to a tag (e.g.
