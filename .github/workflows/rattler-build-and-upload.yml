@@ -51,6 +51,14 @@ jobs:
         with:
           locked: true  # fails the job if pixi.lock is dirty
 
+      - name: Cache rattler-build package downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/rattler
+          key: rattler-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            rattler-${{ runner.os }}-
+
       - name: Build with rattler-build
         env:
           INPUT_RECIPE_DIR: ${{ inputs.recipe-dir }}
