@@ -1,0 +1,41 @@
+name: prek (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: pixi environment that provides prek and the hook tools
+        type: string
+        default: lint
+      runs-on:
+        description: GitHub runner label (e.g. ubuntu-latest, self-hosted)
+        type: string
+        default: ubuntu-latest
+      cache:
+        description: Enable pixi cache
+        type: boolean
+        default: true
+      extra-args:
+        description: Extra arguments appended to `prek run`
+        type: string
+        default: ''
+
+jobs:
+  prek:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: prefix-dev/setup-pixi@v0.9.6
+        with:
+          environments: ${{ inputs.environment }}
+          locked: true
+          cache: ${{ inputs.cache }}
+      - name: Run prek hooks
+        env:
+          EXTRA_ARGS: ${{ inputs.extra-args }}
+        run: |
+          # shellcheck disable=SC2086 # intentional word-splitting for extra args
+          pixi run --locked -e "${{ inputs.environment }}" \
+            prek run --all-files --show-diff-on-failure --color always $EXTRA_ARGS
