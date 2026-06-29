@@ -74,6 +74,28 @@ jobs:
 
 Inputs: `doxyfile`, `html-dir`, `preserve`.
 
+### `prek.yml`
+
+Runs the [prek](https://github.com/j178/prek) hooks (a drop-in pre-commit
+replacement) via pixi. The hook *tools* come from a pixi `lint` environment, so
+versions are tracked in `pixi.lock` and the same hooks run identically on every
+platform (no per-hook toolchain downloads). Check-only: it fails on any diff.
+
+```yaml
+name: Lint
+on:
+  pull_request:
+  push:
+    branches: [main]   # or master
+jobs:
+  prek:
+    uses: ShipSoft/.github/.github/workflows/prek.yml@main
+```
+
+The caller repo must define a pixi environment (default name `lint`) that
+provides `prek` and the hook tools. Inputs: `environment` (default `lint`),
+`runs-on`, `cache`, `extra-args`.
+
 ### `release.yml`
 
 Publishes a GitHub Release for a pushed tag. Generates the release body
