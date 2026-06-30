@@ -3,5 +3,19 @@
   "extends": ["config:recommended", ":enablePreCommit"],
   "schedule": ["every weekend"],
   "prConcurrentLimit": 5,
-  "lockFileMaintenance": { "enabled": false }
+  "lockFileMaintenance": { "enabled": false },
+  "packageRules": [
+    {
+      "description": "pixi conda deps: compare with conda versioning, not the manager's pep440 default",
+      "matchManagers": ["pixi"],
+      "matchDatasources": ["conda"],
+      "versioning": "conda"
+    },
+    {
+      "description": "Never auto-bump the pinned Python interpreter; the lock workflow handles in-series patches",
+      "matchManagers": ["pixi"],
+      "matchPackageNames": ["python"],
+      "enabled": false
+    }
+  ]
 }
