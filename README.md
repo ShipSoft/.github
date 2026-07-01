@@ -83,9 +83,9 @@ platform (no per-hook toolchain downloads). Check-only: it fails on any diff.
 
 When hooks fail on a pull request, the workflow posts the hook output as a
 single sticky PR comment (updated in place on subsequent pushes, and flipped to
-a "passed" note once the hooks pass). This requires the **caller job** to grant
-`pull-requests: write` — a reusable workflow's token permissions are capped by
-those of the caller:
+a "passed" note once the hooks pass). Commenting is **opt-in**: the caller job
+must grant `pull-requests: write`. Without it, linting still runs normally and
+the comment step is simply a no-op:
 
 ```yaml
 name: Lint
@@ -97,14 +97,18 @@ jobs:
   prek:
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: write   # omit to lint without PR comments
     uses: ShipSoft/.github/.github/workflows/prek.yml@main
 ```
 
-Commenting is a no-op when the token is read-only (e.g. pull requests from
-forks); set `comment-on-failure: false` to disable it entirely. The job status
-always reflects the hooks' own pass/fail regardless of whether the comment is
-posted.
+> **Do not** add `pull-requests: write` to `prek.yml` itself. A reusable
+> workflow that *requests* more than the caller grants fails at startup for
+> every caller, so the permission must be granted by each caller instead.
+
+Commenting is also a no-op when the token is read-only for other reasons (e.g.
+pull requests from forks); set `comment-on-failure: false` to disable it
+explicitly. The job status always reflects the hooks' own pass/fail regardless
+of whether the comment is posted.
 
 The caller repo must define a pixi environment (default name `lint`) that
 provides `prek` and the hook tools. Inputs: `environment` (default `lint`),
