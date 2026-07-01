@@ -19,6 +19,14 @@ on:
         description: Extra arguments appended to `prek run`
         type: string
         default: ''
+      comment-on-failure:
+        description: Post prek output as a PR comment when hooks fail
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   prek:
@@ -33,9 +41,52 @@ jobs:
           locked: true
           cache: ${{ inputs.cache }}
       - name: Run prek hooks
+        id: prek
         env:
           EXTRA_ARGS: ${{ inputs.extra-args }}
         run: |
+          set -o pipefail
           # shellcheck disable=SC2086 # intentional word-splitting for extra args
           pixi run --locked -e "${{ inputs.environment }}" \
-            prek run --all-files --show-diff-on-failure --color always $EXTRA_ARGS
+            prek run --all-files --show-diff-on-failure --color always $EXTRA_ARGS \
+            2>&1 | tee prek-output.log
+      - name: Build PR comment body
+        if: failure() && inputs.comment-on-failure && github.event_name == 'pull_request'
+        run: |
+          {
+            echo '<!-- prek-report -->'
+            echo '## ❌ prek hooks failed'
+            echo
+            echo '```'
+            # strip ANSI escapes and tail-truncate to stay under GitHub's comment limit
+            sed -r 's/\x1b\[[0-9;]*[mK]//g' prek-output.log | tail -c 60000
+            echo '```'
+          } > comment-body.md
+      - name: Find existing PR comment
+        id: find-comment
+        if: always() && inputs.comment-on-failure && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- prek-report -->'
+      - name: Post failure comment
+        if: failure() && inputs.comment-on-failure && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: comment-body.md
+          edit-mode: replace
+      - name: Resolve comment on success
+        if: success() && inputs.comment-on-failure && github.event_name == 'pull_request' && steps.find-comment.outputs.comment-id != ''
+        continue-on-error: true
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          body: |
+            <!-- prek-report -->
+            ## ✅ prek hooks passed
+          edit-mode: replace
