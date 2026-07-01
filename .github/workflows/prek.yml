@@ -24,9 +24,11 @@ on:
         type: boolean
         default: true
 
-permissions:
-  contents: read
-  pull-requests: write
+# No permissions block here on purpose: a reusable workflow that *requests* more
+# than the caller grants fails at startup for every caller. Instead we inherit
+# the caller's token, and callers opt into commenting by granting the prek job
+# `pull-requests: write` (see README). The comment steps are best-effort, so
+# callers that don't grant it still lint normally.
 
 jobs:
   prek:
