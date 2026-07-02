@@ -114,6 +114,63 @@ The caller repo must define a pixi environment (default name `lint`) that
 provides `prek` and the hook tools. Inputs: `environment` (default `lint`),
 `runs-on`, `cache`, `extra-args`, `comment-on-failure` (default `true`).
 
+### `commit-check.yml`
+
+Validates that every commit in a pull request follows
+[Conventional Commits](https://www.conventionalcommits.org/), using
+[commitizen](https://commitizen-tools.github.io/commitizen/) (`cz check`). Like
+`prek.yml`, commitizen comes from the pixi `lint` environment, so the version is
+tracked in `pixi.lock` and matches the local `commit-msg` hook — a single source
+of truth, no separately-installed tool to drift. The job only runs on
+`pull_request` events (a push has no commit range to check). Merge and revert
+commits are skipped by commitizen's default `allowed_prefixes`.
+
+Pair it with the local `commit-msg` hook (below) for fast feedback before push;
+this workflow is the authoritative, non-bypassable server-side check.
+
+```yaml
+name: Lint
+on:
+  pull_request:
+  push:
+    branches: [main]   # or master
+jobs:
+  prek:
+    uses: ShipSoft/.github/.github/workflows/prek.yml@main
+  commit-check:
+    permissions:
+      contents: read
+      pull-requests: write   # omit to check without PR comments
+    uses: ShipSoft/.github/.github/workflows/commit-check.yml@main
+```
+
+Commenting is **opt-in** and follows the same rules as `prek.yml`: the caller
+job must grant `pull-requests: write`, and a sticky comment is posted (and
+flipped to a "passed" note) on pull requests. **Do not** add `pull-requests:
+write` to `commit-check.yml` itself.
+
+The caller repo must define a pixi environment (default name `lint`) that
+provides `commitizen`. Inputs: `environment` (default `lint`), `runs-on`,
+`cache`, `comment-on-failure` (default `true`).
+
+To enforce the same rule locally, add the commitizen hook to the repo's
+`.pre-commit-config.yaml`:
+
+```yaml
+  - repo: local
+    hooks:
+      - id: commitizen
+        name: commitizen (conventional commits)
+        language: system
+        entry: cz check --commit-msg-file
+        stages: [commit-msg]
+```
+
+and add `commitizen = "*"` to the pixi `[feature.lint.dependencies]`. Install
+the hook with `prek install --hook-type commit-msg` (wire it into the repo's
+`install-hooks` task so a single `pixi run install-hooks` sets up both the
+`pre-commit` and `commit-msg` hooks).
+
 ### `release.yml`
 
 Publishes a GitHub Release for a pushed tag. Generates the release body

@@ -1,0 +1,93 @@
+name: commit-check (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: pixi environment that provides commitizen
+        type: string
+        default: lint
+      runs-on:
+        description: GitHub runner label (e.g. ubuntu-latest, self-hosted)
+        type: string
+        default: ubuntu-latest
+      cache:
+        description: Enable pixi cache
+        type: boolean
+        default: true
+      comment-on-failure:
+        description: Post the commitizen output as a PR comment when the check fails
+        type: boolean
+        default: true
+
+# No permissions block here on purpose: a reusable workflow that *requests* more
+# than the caller grants fails at startup for every caller. Instead we inherit
+# the caller's token, and callers opt into commenting by granting the job
+# `pull-requests: write` (see README). The comment steps are best-effort, so
+# callers that don't grant it still check normally.
+
+jobs:
+  commit-check:
+    # Only pull requests expose a commit range to validate.
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: prefix-dev/setup-pixi@v0.9.6
+        with:
+          environments: ${{ inputs.environment }}
+          locked: true
+          cache: ${{ inputs.cache }}
+      - name: Check commit messages
+        id: cz
+        run: |
+          set -o pipefail
+          # cz check validates every commit in the PR range against Conventional
+          # Commits. Merge and revert commits are skipped by commitizen's default
+          # allowed_prefixes, so bot/merge commits do not fail the check.
+          pixi run --locked -e "${{ inputs.environment }}" \
+            cz check --rev-range \
+            "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
+            2>&1 | tee cz-output.log
+      - name: Build PR comment body
+        if: failure() && inputs.comment-on-failure && github.event_name == 'pull_request'
+        run: |
+          {
+            echo '<!-- commit-check-report -->'
+            echo '## ❌ commit messages are not Conventional Commits'
+            echo
+            echo '```'
+            # strip ANSI escapes and tail-truncate to stay under GitHub's comment limit
+            sed -r 's/\x1b\[[0-9;]*[mK]//g' cz-output.log | tail -c 60000
+            echo '```'
+          } > comment-body.md
+      - name: Find existing PR comment
+        id: find-comment
+        if: always() && inputs.comment-on-failure && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- commit-check-report -->'
+      - name: Post failure comment
+        if: failure() && inputs.comment-on-failure && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: comment-body.md
+          edit-mode: replace
+      - name: Resolve comment on success
+        if: success() && inputs.comment-on-failure && github.event_name == 'pull_request' && steps.find-comment.outputs.comment-id != ''
+        continue-on-error: true
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          body: |
+            <!-- commit-check-report -->
+            ## ✅ commit messages pass
+          edit-mode: replace
