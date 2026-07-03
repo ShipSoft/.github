@@ -1,0 +1,62 @@
+name: Config sync (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      base:
+        description: Branch to open the config-sync PR against (e.g. main, master)
+        type: string
+        required: true
+      files:
+        description: |
+          Newline-separated list of files to sync from this repository's sync/
+          directory into the caller repo. Only list files the caller does not
+          intentionally customise.
+        type: string
+        default: |
+          .clang-tidy
+          cliff.toml
+      pr-branch:
+        description: Branch name used for the PR
+        type: string
+        default: update-shared-configs
+      pr-label:
+        description: Label to apply to the PR
+        type: string
+        default: config-sync
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  config-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: ShipSoft/.github
+          path: .shared-configs
+      - name: Copy canonical configs
+        env:
+          FILES: ${{ inputs.files }}
+        run: |
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            cp ".shared-configs/sync/$f" "./$f"
+          done <<< "$FILES"
+          rm -rf .shared-configs
+      - uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: sync shared configs"
+          title: Sync shared configs
+          body: >
+            Automated sync of shared configuration files from
+            [ShipSoft/.github](https://github.com/ShipSoft/.github/tree/main/sync).
+          branch: ${{ inputs.pr-branch }}
+          base: ${{ inputs.base }}
+          labels: ${{ inputs.pr-label }}
+          delete-branch: true
+          add-paths: ${{ inputs.files }}
