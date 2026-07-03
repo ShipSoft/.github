@@ -50,8 +50,16 @@ jobs:
 Each `tasks` element is shell word-split, so positional pixi task args
 (e.g. `ci-sim helium`) work directly.
 
+Compilation is routed through [ccache](https://ccache.dev/) by default
+(`hendrikmuhs/ccache-action` installs it and persists the cache between runs;
+`CMAKE_{C,CXX}_COMPILER_LAUNCHER` are exported so CMake picks it up at
+configure time — no changes needed in the caller's pixi tasks). Set `ccache:
+false` if a project misbehaves under ccache, and set `ccache-key` to keep
+caches separate across matrix configurations.
+
 Inputs: `tasks` (JSON array, default `'["test"]'`), `lfs`, `runs-on`,
-`cache`, `env-vars`.
+`cache`, `env-vars`, `artifact-name`, `artifact-path`,
+`artifact-retention-days`, `ccache` (default `true`), `ccache-key`.
 
 ### `doxygen-gh-pages.yml`
 
@@ -192,6 +200,34 @@ jobs:
 ```
 
 Inputs: `cliff-config` (default `cliff.toml`).
+
+### `config-sync.yml`
+
+Opens (or updates) a PR that copies canonical configuration files from this
+repository's [`sync/`](sync) directory into the caller repo, keeping shared
+configs from drifting. Designed to be called from a `schedule:` trigger, like
+`pixi-lock-update.yml`.
+
+```yaml
+name: Update shared configs
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: 0 6 1 * *
+jobs:
+  sync:
+    uses: ShipSoft/.github/.github/workflows/config-sync.yml@main
+    with:
+      base: main         # or master
+```
+
+Only files without intentional per-repo customisation belong in the default
+list: `.clang-format` (include ordering) and `CPPLINT.cfg` (filters) are
+repo-specific and are deliberately **not** synced. Callers that customise one
+of the defaults pass a narrower `files` list.
+
+Inputs: `base` (required), `files` (newline-separated, default `.clang-tidy`
+and `cliff.toml`), `pr-branch`, `pr-label`.
 
 ## Versioning
 
