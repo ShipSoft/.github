@@ -229,6 +229,54 @@ of the defaults pass a narrower `files` list.
 Inputs: `base` (required), `files` (newline-separated, default `.clang-tidy`
 and `cliff.toml`), `pr-branch`, `pr-label`.
 
+### `physics-metrics.yml`
+
+Stores and compares physics-metrics JSON files produced by
+[ship-ci-metrics](https://github.com/ShipSoft/ship-ci-metrics)
+(`ship-metrics-extract`). References live in git notes
+(`refs/notes/ci/physics-metrics/<config>`), one ref per configuration, written
+on pushes to the reference branch; pull requests are compared against the
+newest reference on that branch and get a sticky summary comment.
+
+The caller's CI must upload the extracted metrics as artifacts matching
+`artifact-pattern` (one `metrics-<config>.json` per configuration, e.g. via
+`pixi-cmake-build.yml`'s `artifact-name`/`artifact-path` inputs). The compare
+job runs `ship-ci-metrics` via `pixi exec`, so it needs no caller pixi
+environment — only the `config` file in the caller repo.
+
+```yaml
+jobs:
+  store-metrics:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    permissions:
+      contents: write
+    uses: ShipSoft/.github/.github/workflows/physics-metrics.yml@main
+    with:
+      mode: store
+      reference-branch: main
+  compare-metrics:
+    if: github.event_name == 'pull_request'
+    needs: build
+    permissions:
+      contents: read
+      pull-requests: write   # omit to compare without PR comments
+    uses: ShipSoft/.github/.github/workflows/physics-metrics.yml@main
+    with:
+      mode: compare
+      reference-branch: main
+      config: ci/metrics_config.yaml
+```
+
+Like `prek.yml`, the workflow requests no permissions itself: the caller
+grants `contents: write` for store and `pull-requests: write` for the compare
+comment (the comment is best-effort and skipped for fork PRs).
+
+Inputs: `mode` (required, `store` or `compare`), `reference-branch`
+(required), `config` (required for compare), `artifact-pattern` (default
+`metrics-*`), `notes-ref-prefix` (default `ci/physics-metrics`),
+`comment-on-pr` (default `true`).
+
 ## Versioning
 
 Reusable workflows are referenced via `@main`. Pin to a tag (e.g.
