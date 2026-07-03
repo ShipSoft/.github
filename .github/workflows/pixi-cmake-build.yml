@@ -40,6 +40,14 @@ on:
         description: Retention period for the uploaded artifact (days)
         type: number
         default: 30
+      ccache:
+        description: Cache compiler output with ccache across runs
+        type: boolean
+        default: true
+      ccache-key:
+        description: Extra ccache cache-key component (e.g. a matrix configuration)
+        type: string
+        default: ''
 
 jobs:
   build:
@@ -51,6 +59,17 @@ jobs:
       - uses: prefix-dev/setup-pixi@v0.9.6
         with:
           cache: ${{ inputs.cache }}
+      - uses: hendrikmuhs/ccache-action@v1
+        if: inputs.ccache
+        with:
+          key: ${{ inputs.runs-on }}${{ inputs.ccache-key != '' && format('-{0}', inputs.ccache-key) || '' }}
+      - name: Route compilation through ccache
+        if: inputs.ccache
+        # CMake >=3.17 picks these up at configure time, so consumer tasks
+        # need no changes; ccache is on the host PATH inside `pixi run`.
+        run: |
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
       - name: Export env vars
         if: inputs.env-vars != ''
         env:
