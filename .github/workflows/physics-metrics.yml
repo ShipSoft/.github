@@ -1,0 +1,168 @@
+name: Physics metrics (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: >-
+          "store" pushes the metrics artifacts to git notes (run on pushes to
+          the reference branch); "compare" checks them against the newest
+          stored reference and comments on the PR (run on pull requests).
+        type: string
+        required: true
+      config:
+        description: >-
+          Path to the caller repo's metrics_config.yaml (required for
+          compare mode; passed to ship-metrics-compare).
+        type: string
+        default: ''
+      reference-branch:
+        description: Branch whose history holds the reference notes (e.g. main, master)
+        type: string
+        required: true
+      artifact-pattern:
+        description: Artifact name pattern holding the metrics-<config>.json files
+        type: string
+        default: metrics-*
+      notes-ref-prefix:
+        description: Notes ref namespace under refs/notes/
+        type: string
+        default: ci/physics-metrics
+      comment-on-pr:
+        description: Post the comparison as a sticky PR comment (compare mode)
+        type: boolean
+        default: true
+
+# No permissions block here on purpose (see prek.yml): callers grant what the
+# mode needs — `contents: write` for store, `pull-requests: write` for the
+# compare comment. Compare works without the grant; the comment is best-effort.
+
+jobs:
+  store:
+    if: inputs.mode == 'store'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ inputs.artifact-pattern }}
+          path: metrics/
+          merge-multiple: true
+      - name: Store metrics in git notes
+        env:
+          NOTES_PREFIX: ${{ inputs.notes-ref-prefix }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for f in metrics/metrics-*.json; do
+            config=$(basename "$f" .json)
+            config=${config#metrics-}
+            ref="refs/notes/$NOTES_PREFIX/$config"
+            stored=false
+            for attempt in 1 2 3 4 5; do
+              git fetch origin "+$ref:$ref" || true
+              git notes --ref="$ref" add -f -F "$f" "$GITHUB_SHA"
+              if git push origin "$ref"; then
+                stored=true
+                break
+              fi
+              echo "Push failed (attempt $attempt), retrying..."
+              sleep $((attempt * 5))
+            done
+            if ! $stored; then
+              echo "::error::Failed to store metrics for $config after 5 attempts"
+              exit 1
+            fi
+          done
+  compare:
+    if: inputs.mode == 'compare'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.9.6
+        with:
+          run-install: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ inputs.artifact-pattern }}
+          path: metrics/
+          merge-multiple: true
+      - name: Fetch metrics references
+        env:
+          NOTES_PREFIX: ${{ inputs.notes-ref-prefix }}
+        run: git fetch origin "+refs/notes/$NOTES_PREFIX/*:refs/notes/$NOTES_PREFIX/*" || true
+      - name: Compare against reference
+        env:
+          NOTES_PREFIX: ${{ inputs.notes-ref-prefix }}
+          REFERENCE_BRANCH: ${{ inputs.reference-branch }}
+          CONFIG_FILE: ${{ inputs.config }}
+        run: |
+          mkdir -p comparisons
+          for f in metrics/metrics-*.json; do
+            config=$(basename "$f" .json)
+            config=${config#metrics-}
+            ref="$NOTES_PREFIX/$config"
+            # The branch tip may not have a note yet (its CI run might still
+            # be going), so walk back to the newest commit that has one.
+            reference=""
+            for commit in $(git rev-list --first-parent -n 50 "origin/$REFERENCE_BRANCH"); do
+              if git notes --ref="$ref" show "$commit" > "reference-$config.json" 2>/dev/null; then
+                reference="$commit"
+                break
+              fi
+            done
+            {
+              echo "Configuration: $config"
+              if [ -n "$reference" ]; then
+                echo "Reference commit: $reference"
+                pixi exec -c https://prefix.dev/ship -c conda-forge --spec ship-ci-metrics \
+                  ship-metrics-compare "reference-$config.json" "$f" --config "$CONFIG_FILE"
+              else
+                echo "No reference metrics found for $config"
+              fi
+            } | tee "comparisons/comparison_$config.txt"
+          done
+      - name: Generate summary
+        run: |
+          pixi exec -c https://prefix.dev/ship -c conda-forge --spec ship-ci-metrics \
+            ship-metrics-pr-comment comparisons/ -o comment-body.md
+          {
+            echo '<!-- physics-metrics-comment -->'
+            cat comment-body.md
+          } > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Post PR comment
+        if: >-
+          inputs.comment-on-pr && github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- physics-metrics-comment -->';
+            const body = fs.readFileSync('comment.md', 'utf8');
+            const {data: comments} = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
