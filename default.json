@@ -4,6 +4,17 @@
   "schedule": ["every weekend"],
   "prConcurrentLimit": 5,
   "lockFileMaintenance": { "enabled": false },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update CMake FetchContent GIT_TAG versions (GitHub sources)",
+      "managerFilePatterns": ["/CMakeLists\\.txt$/", "/\\.cmake$/"],
+      "matchStrings": [
+        "GIT_REPOSITORY\\s+https://github\\.com/(?<packageName>[\\w.-]+/[\\w.-]+?)(?:\\.git)?\\s+GIT_TAG\\s+(?<currentValue>[\\w./-]+)"
+      ],
+      "datasourceTemplate": "github-tags"
+    }
+  ],
   "packageRules": [
     {
       "description": "pixi conda deps: compare with conda versioning, not the manager's pep440 default",
@@ -16,6 +27,11 @@
       "matchManagers": ["pixi"],
       "matchPackageNames": ["python"],
       "enabled": false
+    },
+    {
+      "description": "Use loose versioning for CMake FetchContent (and other regex) tags",
+      "matchManagers": ["custom.regex"],
+      "versioning": "loose"
     }
   ]
 }
