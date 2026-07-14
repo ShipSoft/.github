@@ -277,6 +277,32 @@ Inputs: `mode` (required, `store` or `compare`), `reference-branch`
 `metrics-*`), `notes-ref-prefix` (default `ci/physics-metrics`),
 `comment-on-pr` (default `true`).
 
+## Contributor setup snippet
+
+Repositories that lint via `prek.yml` should document the matching local
+setup in their `CONTRIBUTING.md`. To keep the wording consistent, copy the
+canonical "Pre-commit hooks" step below (adjust the surrounding numbering
+and the dependency list to the repo):
+
+````markdown
+**Pre-commit Hooks**: We use [`prek`](https://github.com/j178/prek) (a
+drop-in `pre-commit` replacement) to enforce coding standards. The hook
+tools come from the pixi `lint` environment, so versions are tracked in
+`pixi.lock` and run identically everywhere. Install the hooks once:
+
+```bash
+pixi run install-hooks
+```
+
+Run all hooks manually at any time with `pixi run lint`.
+````
+
+Do **not** tell contributors to run `pre-commit install`: that would use
+whatever tool versions are on their `PATH` rather than the pinned `lint`
+environment. The full rationale lives in the
+[Linting & git hooks](https://shipsoft.github.io/Documentation/dev-guide/linting-and-hooks/)
+dev-guide page.
+
 ## Versioning
 
 Reusable workflows are referenced via `@main`. Pin to a tag (e.g.
