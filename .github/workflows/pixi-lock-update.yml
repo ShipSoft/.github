@@ -35,7 +35,13 @@ jobs:
       - name: Update lock files
         run: |
           set -o pipefail
-          pixi update --json | pixi exec pixi-diff-to-markdown >> diff.md
+          # Capture the diff JSON separately so a pixi-diff-to-markdown crash
+          # (e.g. https://github.com/pavelzw/pixi-diff-to-markdown assertion on
+          # versions differing only by a normalized segment) degrades the PR
+          # body instead of aborting the update and losing the PR entirely.
+          pixi update --json > update.json
+          pixi exec pixi-diff-to-markdown < update.json >> diff.md \
+            || echo "_Automated dependency diff unavailable: pixi-diff-to-markdown crashed (see the lockfile diff in this PR)._" >> diff.md
       - uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
