@@ -11,11 +11,11 @@ on:
         description: |
           Newline-separated list of files to sync from this repository's sync/
           directory into the caller repo. Only list files the caller does not
-          intentionally customise.
+          intentionally customise. Defaults to the universal set (AI_POLICY.md);
+          C++ repos pass the C++ set (see README).
         type: string
         default: |
-          .clang-tidy
-          cliff.toml
+          AI_POLICY.md
       pr-branch:
         description: Branch name used for the PR
         type: string

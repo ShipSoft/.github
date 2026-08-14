@@ -221,13 +221,26 @@ jobs:
       base: main         # or master
 ```
 
-Only files without intentional per-repo customisation belong in the default
-list: `.clang-format` (include ordering) and `CPPLINT.cfg` (filters) are
-repo-specific and are deliberately **not** synced. Callers that customise one
-of the defaults pass a narrower `files` list.
+The default `files` list is the **universal set** — currently just
+`AI_POLICY.md`, which every repository carries. C++ repos additionally sync
+`.clang-tidy` and `cliff.toml` by passing the **C++ set** explicitly:
 
-Inputs: `base` (required), `files` (newline-separated, default `.clang-tidy`
-and `cliff.toml`), `pr-branch`, `pr-label`.
+```yaml
+    with:
+      base: main         # or master
+      files: |
+        AI_POLICY.md
+        .clang-tidy
+        cliff.toml
+```
+
+Only files without intentional per-repo customisation belong in these lists:
+`.clang-format` (include ordering) and `CPPLINT.cfg` (filters) are repo-specific
+and are deliberately **not** synced. Callers that customise one of the shared
+files pass a narrower `files` list.
+
+Inputs: `base` (required), `files` (newline-separated, default `AI_POLICY.md`),
+`pr-branch`, `pr-label`.
 
 ### `physics-metrics.yml`
 
