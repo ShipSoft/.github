@@ -216,10 +216,17 @@ on:
     - cron: 0 6 1 * *
 jobs:
   sync:
+    permissions:
+      contents: write
+      pull-requests: write
     uses: ShipSoft/.github/.github/workflows/config-sync.yml@main
     with:
       base: main         # or master
 ```
+
+Like `prek.yml`, the workflow requests no permissions itself: the caller job
+must grant `contents: write` (to push the branch) and `pull-requests: write`
+(to open the sync PR). **Do not** add these to `config-sync.yml` itself.
 
 The default `files` list is the **universal set** — currently just
 `AI_POLICY.md`, which every repository carries. C++ repos additionally sync

@@ -25,10 +25,6 @@ on:
         type: string
         default: config-sync
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
   config-sync:
     runs-on: ubuntu-latest
