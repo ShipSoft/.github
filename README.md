@@ -241,6 +241,11 @@ The default `files` list is the **universal set** — currently just
         cliff.toml
 ```
 
+The canonical copies live in `sync/`, and that is where they must be edited.
+This repository carries the policy like any other, but its root `AI_POLICY.md`
+is a symlink to `sync/AI_POLICY.md`, so the source of truth cannot drift from
+what is shipped to everyone else.
+
 Only files without intentional per-repo customisation belong in these lists:
 `.clang-format` (include ordering) and `CPPLINT.cfg` (filters) are repo-specific
 and are deliberately **not** synced. Callers that customise one of the shared
