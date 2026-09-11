@@ -1,0 +1,54 @@
+{
+  "name": "main-2",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [
+    {"actor_type": "RepositoryRole", "actor_id": 5, "bypass_mode": "always"}
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {"type": "required_linear_history"},
+    {
+      "type": "merge_queue",
+      "parameters": {
+        "merge_method": "REBASE",
+        "grouping_strategy": "ALLGREEN",
+        "max_entries_to_build": 5,
+        "min_entries_to_merge": 1,
+        "max_entries_to_merge": 5,
+        "min_entries_to_merge_wait_minutes": 5,
+        "check_response_timeout_minutes": 90
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {"context": "All checks passed", "integration_id": 15368},
+          {"context": "Lint passed", "integration_id": 15368}
+        ]
+      }
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "dismissal_restriction": {"enabled": false, "allowed_actors": []},
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": ["squash", "rebase"]
+      }
+    }
+  ]
+}
