@@ -353,6 +353,95 @@ environment. The full rationale lives in the
 [Linting & git hooks](https://shipsoft.github.io/Documentation/dev-guide/linting-and-hooks/)
 dev-guide page.
 
+## Repository settings
+
+Reusable workflows cover what runs *in* a repository; [`repo-config/`](repo-config)
+covers the repository settings themselves: merge methods and the branch
+rulesets that give every repo a merge queue, a review requirement and a linear
+history.
+
+```bash
+repo-config/apply-repo-config.sh              # dry run: print the diff
+repo-config/apply-repo-config.sh --apply      # write it
+repo-config/apply-repo-config.sh --repo aegir # one repo at a time
+```
+
+It needs `gh` (authenticated as someone with admin on the target repos) and
+`jq`, and nothing else. Re-running it is safe, and a dry run doubles as the
+drift check.
+
+This is deliberately *not* wired into a scheduled workflow: `GITHUB_TOKEN`
+cannot write another repository's rulesets, so automating it would mean keeping
+a PAT or App token as an org secret.
+
+### What it sets
+
+Each repository gets two rulesets on its default branch, following the split
+FairShip already used:
+
+- `main-1`: no deletion, no force-push. No bypass for anyone.
+- `main-2`: linear history, merge queue (rebase, all-green grouping), one
+  approving review, resolved conversations, and squash/rebase as the only merge
+  methods. Repository admins may bypass this one.
+
+The split matters: an admin can land an urgent fix without a second pair of
+eyes, while nobody at all can rewrite or delete the default branch.
+
+Repository-level toggles disable merge commits outright. They also enable
+auto-merge, so a pull request can be handed to the queue before its checks
+finish, and "update branch", so a stale branch can be refreshed from the
+web UI.
+
+### Required checks
+
+A merge queue only works if its required checks also run on the `merge_group`
+event, and the ruleset can only be identical everywhere if the check names are.
+So each repository provides two aggregator jobs that gate on everything else in
+their workflow. `All checks passed` in the build workflow, `Lint passed` in
+the lint workflow:
+
+```yaml
+  all-checks:
+    name: All checks passed
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [build, test]     # every other job in this workflow
+    steps:
+      - name: Check status of all jobs
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more jobs failed or were cancelled"
+            exit 1
+          fi
+```
+
+A skipped job counts as a pass, which matters: `commit-check.yml` only runs on
+`pull_request` events, so it is skipped inside a merge group. Commit messages
+are checked on the pull request, not again in the queue.
+
+Both contexts are pinned to the GitHub Actions app (`integration_id` 15368), so
+a status posted under one of those names by anything else does not satisfy the
+rule. FairShip's original ruleset left this unset; ship-conda-recipes already
+pinned it.
+
+[`repos.json`](repo-config/repos.json) records a `tier` per repository for the
+repos that cannot provide both contexts: `single` for repositories that build,
+test and lint in one job, `none` for repositories with no pull-request CI at
+all. A `none`-tier repo still gets reviews and a linear history; its queue
+simply has nothing to gate.
+
+The script will not require a check unless it has reported on the default
+branch and the workflow that produced it triggers on `merge_group`. Either
+gap would leave every pull request waiting on a status that never arrives, so
+when one is found the repository is left exactly as it is and the run exits
+nonzero. The aggregator job has to land before the ruleset does.
+
+### CODEOWNERS
+
+`require_code_owner_review` follows the `codeowners` flag in `repos.json`, which
+mirrors whether the repository actually has a CODEOWNERS file. When one lands,
+flip the flag and re-run.
+
 ## Versioning
 
 Reusable workflows are referenced via `@main`. Pin to a tag (e.g.

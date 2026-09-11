@@ -1,0 +1,33 @@
+{
+  "org": "ShipSoft",
+  "$comment": [
+    "Repositories whose settings are managed by apply-repo-config.sh.",
+    "tier selects the required_status_checks rule:",
+    "  full   - requires 'All checks passed' and 'Lint passed'",
+    "  single - requires 'All checks passed' only (build and lint share one workflow)",
+    "  none   - no required checks; the repo has no pull-request CI",
+    "codeowners mirrors whether the repo has a CODEOWNERS file. Flip it to true",
+    "once one lands and re-run the script.",
+    "Deliberately absent: Documentation (no pull-request workflow to require),",
+    "project_plan (private repo on a free org, rulesets unavailable), the forks",
+    "EventCalc and ROOTEGPythia6, and archived cvmfs_release."
+  ],
+  "repos": {
+    "FairShip":                    {"tier": "full",   "codeowners": true},
+    "Geometry":                    {"tier": "full",   "codeowners": false},
+    "Shannon":                     {"tier": "full",   "codeowners": false},
+    "aegir":                       {"tier": "full",   "codeowners": false},
+    "aegir-genie":                 {"tier": "full",   "codeowners": false},
+    "data-model":                  {"tier": "full",   "codeowners": false},
+    "field_service":               {"tier": "full",   "codeowners": false},
+    "geometry_service":            {"tier": "full",   "codeowners": false},
+    "ship-ci-metrics":             {"tier": "full",   "codeowners": false},
+    "ship-conda-recipes":          {"tier": "full",   "codeowners": false},
+    "shipdist":                    {"tier": "full",   "codeowners": false},
+    "sea-cucumber":                {"tier": "single", "codeowners": false},
+    ".github":                     {"tier": "none",   "codeowners": false},
+    "Trout":                       {"tier": "none",   "codeowners": false},
+    "htcondor_submission_scripts": {"tier": "none",   "codeowners": false},
+    "tutorials":                   {"tier": "none",   "codeowners": false}
+  }
+}
