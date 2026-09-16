@@ -122,6 +122,87 @@ The caller repo must define a pixi environment (default name `lint`) that
 provides `prek` and the hook tools. Inputs: `environment` (default `lint`),
 `runs-on`, `cache`, `extra-args`, `comment-on-failure` (default `true`).
 
+### `clang-tidy.yml`
+
+Runs [clang-tidy](https://clang.llvm.org/extra/clang-tidy/) against the
+canonical `sync/.clang-tidy`, which enables whole check families to push the
+code towards idiomatic modern C++ along the
+[C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines).
+
+A config that strict would be unusable as a plain gate: the existing code
+predates it, so any pull request touching an older file would fail on findings
+its author did not introduce. The workflow is a **ratchet** instead. On a pull
+request it reports only findings that land on lines the patch adds or changes,
+and fails on those. On a push it runs over the whole tree and reports what it
+finds without failing, so the backlog stays visible.
+
+It needs a compilation database, so unlike `prek.yml` it builds the project
+first, running `["configure", "build"]` by default, through ccache.
+
+Headers are not in that database; only translation units are. A changed header
+is therefore analysed through the ones that include it, followed from the
+repository's own `#include` lines, and changing a widely included header costs
+close to a full-tree run. A header nothing in the repository includes has no
+translation unit to be checked in, so the job warns. A changed source file with
+no compile command gets an error instead, since the build does not know about
+it, and `fail-on-tool-error` decides what that costs.
+
+```yaml
+name: clang-tidy
+on:
+  pull_request:
+  push:
+    branches: [main]   # or master
+  workflow_dispatch:
+concurrency:
+  group: clang-tidy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  clang-tidy:
+    permissions:
+      contents: read
+      pull-requests: write   # omit to run without PR comments
+    uses: ShipSoft/.github/.github/workflows/clang-tidy.yml@main
+```
+
+Commenting follows the same rules as `prek.yml`: a sticky comment on failure,
+flipped to a passing note once the findings are gone, and a no-op unless the
+caller grants `pull-requests: write`. **Do not** add that permission to
+`clang-tidy.yml` itself.
+
+The caller repo needs four things:
+
+- the canonical `.clang-tidy` in its root, which means listing it in the `files`
+  input of its `config-sync.yml` caller (the C++ set, below). clang-tidy reads
+  the config out of the repository it is analysing, so a repo without it is
+  checked against clang-tidy's own default of `clang-diagnostic-*` and
+  `clang-analyzer-*`, and the job passes having enforced none of the policy;
+- `set(CMAKE_EXPORT_COMPILE_COMMANDS ON)` in `CMakeLists.txt`, or there is no
+  compilation database to analyse;
+- `clang` and `clang-tools` in the pixi environment named by `environment`.
+  Both: `clang-tools` provides clang-tidy, but does not depend on the `clang`
+  package that ships clang's own builtin headers, and without those every
+  translation unit fails to parse;
+- `configure` and `build` pixi tasks, or a `tasks` list naming the equivalents.
+
+Put those dependencies in the *build* environment rather than `lint`.
+clang-tidy replays the commands in `compile_commands.json`, so it needs the
+same headers the compiler saw, and `lint` is in its own solve group in most
+repos, so its versions can drift from the ones the database was generated
+against.
+
+Land it with `fail-on-new: false` for a soak period to see a repo's findings
+without blocking anyone, then drop the input. That input is also the relief
+valve if one repo turns out noisier than expected: better a visible line in
+its caller workflow than a `.clang-tidy` that has drifted from everyone
+else's.
+
+Inputs: `environment` (default `default`), `tasks` (JSON array, default
+`'["configure", "build"]'`), `build-dir`, `build-artifact`, `source-filter`,
+`pathspecs`, `fail-on-new` (default `true`), `fail-on-tool-error` (default
+`true`), `extra-args`, `lfs`, `runs-on`, `cache`, `ccache`, `ccache-key`,
+`comment-on-failure` (default `true`).
+
 ### `commit-check.yml`
 
 Validates that every commit in a pull request follows
@@ -247,9 +328,36 @@ is a symlink to `sync/AI_POLICY.md`, so the source of truth cannot drift from
 what is shipped to everyone else.
 
 Only files without intentional per-repo customisation belong in these lists:
-`.clang-format` (include ordering) and `CPPLINT.cfg` (filters) are repo-specific
-and are deliberately **not** synced. Callers that customise one of the shared
-files pass a narrower `files` list.
+`.clang-format` is repo-specific (include ordering) and is deliberately **not**
+synced. Callers that customise one of the shared files pass a narrower `files`
+list.
+
+`.clang-tidy` is shared, but repos do still differ. Rather than let each one
+edit its root copy, layer the difference on top. clang-tidy reads the nearest
+`.clang-tidy` walking up from the file it was handed, and
+`InheritParentConfig` makes that additive:
+
+```yaml
+# src/.clang-tidy -- repo-owned, never synced
+InheritParentConfig: true
+Checks: >
+  -cppcoreguidelines-pro-type-vararg,
+CheckOptions:
+  readability-identifier-naming.ClassCase: lower_case
+```
+
+`Checks` concatenates with the parent's and the later entry wins, so a layer
+can switch a check off; `CheckOptions` merges, so it can also configure one the
+shared file leaves silent. `readability-identifier-naming` is the case that
+matters today: the shared config enables it but sets no cases, so it says
+nothing until a repo opts in like this.
+
+The file clang-tidy is handed is the translation unit, not the header it ends
+up reporting on. It takes the config from the parent directories of the `.cxx`
+and checks the whole translation unit against it, headers included, so a layer
+in `include/` is never read. Put one in each source directory that needs it.
+config-sync only ever writes the paths in its `files` list, so these never
+collide with it.
 
 Inputs: `base` (required), `files` (newline-separated, default `AI_POLICY.md`),
 `pr-branch`, `pr-label`.
