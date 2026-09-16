@@ -1,0 +1,618 @@
+name: clang-tidy (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: |
+          pixi environment providing clang-tidy. It must also carry the build
+          toolchain: clang-tidy replays the commands in compile_commands.json,
+          so it needs every dependency's headers. Add `clang` and `clang-tools`
+          to that environment -- clang-tools does not depend on the clang
+          package that ships clang's own builtin headers, and without them
+          every translation unit fails to parse.
+        type: string
+        default: default
+      tasks:
+        description: |
+          JSON array of pixi tasks run in order to produce
+          compile_commands.json and any generated sources. Ignored when
+          build-artifact is set.
+        type: string
+        default: '["configure", "build"]'
+      build-dir:
+        description: Directory holding compile_commands.json
+        type: string
+        default: build
+      build-artifact:
+        description: |
+          Name of an artifact holding a ready-made build tree, downloaded into
+          build-dir instead of running `tasks`. For projects whose build is
+          expensive enough to be worth sharing; the caller must then list the
+          producing job in `needs:`.
+        type: string
+        default: ''
+      source-filter:
+        description: |
+          Python regular expression selecting which compilation-database
+          entries are analysed, on the pull-request run as well as the
+          full-tree one. The default drops ROOT-generated dictionaries and
+          FetchContent'd sources. Matched with Python `re.match`, so lookaheads
+          work here -- unlike in .clang-tidy, which clang-tidy matches with
+          llvm::Regex.
+        type: string
+        default: '^(?!.*(/G__|Dict\.cxx|/_deps/|/CMakeFiles/)).*'
+      pathspecs:
+        description: git pathspecs selecting the changed files the ratchet considers
+        type: string
+        default: |
+          *.c
+          *.cc
+          *.cpp
+          *.cxx
+          *.h
+          *.hh
+          *.hpp
+          *.hxx
+          :(exclude)*LinkDef.h
+      fail-on-new:
+        description: |
+          Fail the pull-request job on findings that land on changed lines. Set
+          false to land the workflow in annotate-only mode for a soak period.
+        type: boolean
+        default: true
+      fail-on-tool-error:
+        description: |
+          Fail when clang-tidy itself errors -- a parse failure or a file with
+          no compile command, as opposed to a finding about the code.
+        type: boolean
+        default: true
+      extra-args:
+        description: Extra flags appended to the run-clang-tidy command line. Word-split.
+        type: string
+        default: ''
+      lfs:
+        description: Fetch git-lfs objects during checkout
+        type: boolean
+        default: false
+      runs-on:
+        description: GitHub runner label
+        type: string
+        default: ubuntu-latest
+      cache:
+        description: Enable the pixi cache
+        type: boolean
+        default: true
+      ccache:
+        description: Cache compiler output between runs
+        type: boolean
+        default: true
+      ccache-key:
+        description: |
+          Extra component for the ccache key. Leave empty to share a cache with
+          the caller's pixi-cmake-build.yml job.
+        type: string
+        default: ''
+      comment-on-failure:
+        description: Post the findings as a sticky PR comment when the gate fails
+        type: boolean
+        default: true
+
+# No permissions block here on purpose: a reusable workflow that *requests*
+# more than the caller grants fails at startup for every caller. We inherit the
+# caller's token instead, and callers opt into commenting by granting the job
+# `pull-requests: write` (see README). The comment steps are best-effort, so
+# callers that withhold it still get the gate.
+
+jobs:
+  clang-tidy:
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0          # the ratchet needs base..head
+          lfs: ${{ inputs.lfs }}
+          persist-credentials: false
+
+      # Cheapest check first: skip the whole build when no C++ changed.
+      - name: Collect changed C++ lines
+        id: scope
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PATHSPECS: ${{ inputs.pathspecs }}
+        run: |
+          set -euo pipefail
+          mapfile -t specs < <(printf '%s\n' "$PATHSPECS" | sed '/^[[:space:]]*$/d')
+          # --unified=0 so the hunk headers name exactly the added and changed
+          # lines, which is what scope.py turns into a -line-filter.
+          git diff --unified=0 --diff-filter=d "$BASE_SHA" HEAD -- "${specs[@]}" > patch.diff
+          if [ -s patch.diff ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No C++ changes in this pull request; clang-tidy skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Install the annotator
+        if: github.event_name != 'pull_request' || steps.scope.outputs.changed == 'true'
+        run: |
+          cat > "$RUNNER_TEMP/annotate.py" <<'PY'
+          """Turn a clang-tidy log into GitHub annotations and a summary table."""
+          import os, re, sys
+          level, root, logfile = sys.argv[1], os.path.realpath(sys.argv[2]), sys.argv[3]
+          cap = int(os.environ.get("ANNOTATION_CAP", "10"))
+          dedup = os.environ.get("DEDUP_LOG", "")
+          pat = re.compile(
+              r"^(?P<f>.+?):(?P<l>\d+):(?P<c>\d+):\s+"
+              r"(?P<sev>warning|error):\s+(?P<m>.+?)"
+              r"(?:\s+\[(?P<chk>[\w.,-]+)\])?$")
+          # run-clang-tidy's progress and tally lines end a diagnostic's block of
+          # source context and notes without starting another one.
+          edge = re.compile(r"^(\[\s*\d+\s*/\s*\d+\]|\d+ (warning|error)s?|Suppressed )")
+          # HeaderFilterRegex filters check diagnostics only; plain
+          # clang-diagnostic-* messages from dependency headers leak through.
+          drop = ("/.pixi/", "/.direnv/", "/_deps/", "/CMakeFiles/")
+          # A clang-diagnostic-error is the compiler giving up, not a finding
+          # about the code. It is still annotated and tabulated, but the gate
+          # hears about it through the exit status (fail-on-tool-error), so keep
+          # it out of the count fail-on-new acts on.
+          errs = ("clang-diagnostic-error", "clang-diagnostic-fatal-error")
+          seen, counts, n, bad, shown, keep = set(), {}, 0, 0, 0, False
+          out = open(dedup, "w", encoding="utf-8") if dedup else None
+          for line in open(logfile, encoding="utf-8", errors="replace"):
+              m = pat.match(line.rstrip("\n"))
+              if not m:
+                  if edge.match(line):
+                      keep = False
+                  elif keep and out:
+                      out.write(line)
+                  continue
+              keep = False
+              if any(s in m["f"] for s in drop):
+                  continue
+              # Every translation unit that includes a changed header repeats
+              # that header's findings, so this is what keeps the count, the
+              # annotations and the pull-request comment down to one each.
+              key = (m["f"], m["l"], m["c"], m["chk"], m["m"])
+              if key in seen:
+                  continue
+              seen.add(key)
+              rel = os.path.relpath(os.path.realpath(m["f"]), root)
+              if rel.startswith(".."):
+                  rel = m["f"]
+              name = m["chk"] or m["sev"]
+              counts[name] = counts.get(name, 0) + 1
+              if name in errs or (not m["chk"] and m["sev"] == "error"):
+                  bad += 1
+              else:
+                  n += 1
+              shown += 1
+              if out:
+                  out.write(line)
+                  keep = True
+              if shown <= cap:
+                  msg = m["m"].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                  print(f"::{level} file={rel},line={m['l']},col={m['c']},"
+                        f"title={name}::{msg}")
+          if out:
+              out.close()
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              tally = f"{n} finding(s)" + (f", {bad} tool error(s)" if bad else "")
+              s.write(f"\n### clang-tidy: {tally}\n\n")
+              if counts:
+                  s.write("| check | count |\n|---|--:|\n")
+                  for k, v in sorted(counts.items(), key=lambda kv: -kv[1]):
+                      s.write(f"| `{k}` | {v} |\n")
+              if shown > cap:
+                  s.write(f"\n_Only the first {cap} are annotated, which is "
+                          f"GitHub's per-step limit. The full log is attached "
+                          f"as an artifact._\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as o:
+              o.write(f"count={n}\n")
+          PY
+
+      - name: Install the scope helper
+        if: github.event_name == 'pull_request' && steps.scope.outputs.changed == 'true'
+        run: |
+          cat > "$RUNNER_TEMP/scope.py" <<'PY'
+          """Turn a patch into translation units to analyse and a line filter.
+
+          Headers are not in compile_commands.json, so a changed header has no
+          translation unit of its own and nothing to replay against it. Hand
+          clang-tidy the translation units that include it instead, and let the
+          line filter keep the findings on the lines the patch touched. Without
+          that, a pull request touching only headers goes through with nothing
+          analysed.
+          """
+          import json, os, re, subprocess, sys
+          build_dir, source_filter, patch = sys.argv[1], sys.argv[2], sys.argv[3]
+          root = os.getcwd()
+
+          # The +++ header names the file, with git's b/ prefix stripped, and
+          # each hunk header names the post-image lines. A count of zero is a
+          # pure deletion, which leaves no line to report on. These are the
+          # shapes clang-tidy-diff.py matches, so this is the filter it would
+          # have built.
+          lines_by_file, name = {}, None
+          for line in open(patch, encoding="utf-8", errors="replace"):
+              m = re.search(r'^\+\+\+\ "?(.*?/){1}([^ \t\n"]*)', line)
+              if m:
+                  name = m.group(2)
+                  continue
+              if name is None:
+                  continue
+              m = re.search(r"^@@.*\+(\d+)(?:,(\d+))?", line)
+              if m:
+                  start, count = int(m.group(1)), int(m.group(2) or 1)
+                  if count:
+                      lines_by_file.setdefault(name, []).append(
+                          [start, start + count - 1])
+
+          # run-clang-tidy applies -source-filter with re.match against this
+          # path. Apply it here instead, so "nothing to analyse" is a statement
+          # about the diff and not about a filter this script cannot see.
+          src = re.compile(source_filter)
+          with open(os.path.join(build_dir, "compile_commands.json"),
+                    encoding="utf-8") as fh:
+              db = json.load(fh)
+          known, tus = set(), {}
+          for e in db:
+              p = os.path.abspath(os.path.join(e["directory"], e["file"]))
+              known.add(os.path.realpath(p))
+              if src.match(p):
+                  tus[os.path.realpath(p)] = p
+
+          # Who includes what, from the repository's own files. Resolving an
+          # include by path suffix and falling back to the bare file name
+          # over-approximates when two headers share a name, which is the safe
+          # direction: a surplus translation unit costs time, a missing one
+          # costs a finding. A translation unit that reaches a changed header
+          # only through a generated header in the build tree is missed, but
+          # generated sources are what source-filter drops anyway.
+          exts = (".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
+                  ".icc", ".inc", ".inl", ".ipp", ".tcc")
+          repo = [f for f in subprocess.run(
+                      ["git", "ls-files", "-z"], capture_output=True,
+                      text=True, check=True).stdout.split("\0")
+                  if f.endswith(exts)]
+          by_name = {}
+          for f in repo:
+              by_name.setdefault(os.path.basename(f), []).append(f)
+          inc = re.compile(r'^\s*#\s*include\s*["<]([^">]+)[">]')
+          includers = {}
+          for f in repo:
+              with open(f, encoding="utf-8", errors="replace") as fh:
+                  for line in fh:
+                      m = inc.match(line)
+                      if not m:
+                          continue
+                      target = m.group(1)
+                      hits = by_name.get(os.path.basename(target), ())
+                      exact = [c for c in hits
+                               if c == target or c.endswith("/" + target)]
+                      for c in (exact or hits):
+                          includers.setdefault(c, set()).add(f)
+
+          # A changed translation unit analyses itself; a changed header is
+          # analysed through everything that reaches it. What reaches nothing
+          # is either a header nobody includes, which cannot be analysed and is
+          # worth a warning, or a source file the build does not know about,
+          # which is the "file with no compile command" fail-on-tool-error
+          # speaks for.
+          sources = (".c", ".cc", ".cpp", ".cxx")
+          selected, unreached, missing = {}, [], []
+          for f in sorted(lines_by_file):
+              real = os.path.realpath(os.path.join(root, f))
+              if real in tus:
+                  selected[real] = tus[real]
+                  continue
+              if real in known:
+                  continue        # in the database, but source-filter drops it
+              seen, queue, reached = {f}, [f], False
+              while queue:
+                  for up in includers.get(queue.pop(), ()):
+                      if up in seen:
+                          continue
+                      seen.add(up)
+                      queue.append(up)
+                      r = os.path.realpath(os.path.join(root, up))
+                      if r in tus:
+                          selected[r] = tus[r]
+                          reached = True
+              if not reached:
+                  (missing if f.endswith(sources) else unreached).append(f)
+
+          with open("line-filter.json", "w", encoding="utf-8") as fh:
+              json.dump([{"name": f, "lines": v}
+                         for f, v in sorted(lines_by_file.items())], fh)
+          # run-clang-tidy joins its positional arguments with | and matches
+          # them with re.search against the database path, so anchor each one.
+          with open("tidy-tus.txt", "w", encoding="utf-8") as fh:
+              for p in sorted(selected.values()):
+                  fh.write("^%s$\n" % re.escape(p))
+          print(f"{len(lines_by_file)} changed file(s), "
+                f"{len(selected)} translation unit(s) to analyse")
+
+          def report(paths, level, note):
+              listed = ", ".join(paths)
+              print(f"::{level}::{note}: {listed}")
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a",
+                        encoding="utf-8") as s:
+                  s.write(f"\n_{note}: {listed}._\n")
+
+          if unreached:
+              report(unreached, "warning", "Not analysed, because no "
+                     "translation unit in the compilation database includes "
+                     "them")
+          if missing:
+              report(missing, "error", "Not analysed, because they have no "
+                     "compile command. Add them to the build, or leave them "
+                     "out with the pathspecs input")
+          # Read back by the Gate step, which decides through fail-on-tool-error
+          # what a source file the build does not know about is worth.
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as o:
+              o.write(f"missing={len(missing)}\n")
+          PY
+
+      - uses: prefix-dev/setup-pixi@v0.9.6
+        if: github.event_name != 'pull_request' || steps.scope.outputs.changed == 'true'
+        with:
+          environments: ${{ inputs.environment }}
+          locked: true
+          cache: ${{ inputs.cache }}
+
+      - uses: hendrikmuhs/ccache-action@v1
+        if: (github.event_name != 'pull_request' || steps.scope.outputs.changed == 'true') && inputs.ccache && inputs.build-artifact == ''
+        with:
+          key: ${{ inputs.runs-on }}${{ inputs.ccache-key != '' && format('-{0}', inputs.ccache-key) || '' }}
+
+      - name: Route compilation through ccache
+        if: (github.event_name != 'pull_request' || steps.scope.outputs.changed == 'true') && inputs.ccache && inputs.build-artifact == ''
+        run: |
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache"   >> "$GITHUB_ENV"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+
+      - name: Download the prebuilt tree
+        if: (github.event_name != 'pull_request' || steps.scope.outputs.changed == 'true') && inputs.build-artifact != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.build-artifact }}
+          path: ${{ inputs.build-dir }}
+
+      - name: Build the compilation database
+        if: (github.event_name != 'pull_request' || steps.scope.outputs.changed == 'true') && inputs.build-artifact == ''
+        env:
+          TASKS_JSON: ${{ inputs.tasks }}
+          TIDY_ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          echo "$TASKS_JSON" | jq -r '.[]' | while IFS= read -r task; do
+            echo "::group::pixi run -e $TIDY_ENV $task"
+            # shellcheck disable=SC2086 # intentional word-splitting for task args
+            pixi run --locked -e "$TIDY_ENV" $task
+            echo "::endgroup::"
+          done
+
+      - name: Locate the clang tooling
+        id: tools
+        if: github.event_name != 'pull_request' || steps.scope.outputs.changed == 'true'
+        env:
+          TIDY_ENV: ${{ inputs.environment }}
+          BUILD_DIR: ${{ inputs.build-dir }}
+        run: |
+          set -euo pipefail
+          prefix=$(pixi info --json | jq -r --arg e "$TIDY_ENV" \
+                   '.environments_info[] | select(.name == $e) | .prefix')
+          if [ -z "$prefix" ] || [ "$prefix" = "null" ]; then
+            prefix="$PWD/.pixi/envs/$TIDY_ENV"
+          fi
+          if [ ! -x "$prefix/bin/run-clang-tidy" ]; then
+            echo "::error::$prefix/bin/run-clang-tidy not found. Add 'clang' and 'clang-tools' to the '$TIDY_ENV' pixi environment."
+            exit 1
+          fi
+          if [ ! -f "$BUILD_DIR/compile_commands.json" ]; then
+            echo "::error::$BUILD_DIR/compile_commands.json is missing. Add set(CMAKE_EXPORT_COMPILE_COMMANDS ON) to CMakeLists.txt."
+            exit 1
+          fi
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+
+      # ---- pull request: only the lines this PR touched --------------------
+      - name: clang-tidy (changed lines)
+        id: gate
+        if: github.event_name == 'pull_request' && steps.scope.outputs.changed == 'true'
+        env:
+          TIDY_ENV: ${{ inputs.environment }}
+          BUILD_DIR: ${{ inputs.build-dir }}
+          PREFIX: ${{ steps.tools.outputs.prefix }}
+          SOURCE_FILTER: ${{ inputs.source-filter }}
+          EXTRA_ARGS: ${{ inputs.extra-args }}
+        run: |
+          set -uo pipefail
+          : > clang-tidy-new.log
+          if ! python3 "$RUNNER_TEMP/scope.py" "$BUILD_DIR" "$SOURCE_FILTER" patch.diff; then
+            echo "::error::Could not map the patch onto $BUILD_DIR/compile_commands.json."
+            exit 1
+          fi
+          if [ ! -s tidy-tus.txt ]; then
+            # The helper has already said which files it could not reach.
+            echo "tool_rc=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mapfile -t tus < tidy-tus.txt
+          # The -isystem is needed because CMake leaves $CONDA_PREFIX/include
+          # out of compile_commands.json: it is implicit for the conda gcc but
+          # not for clang. source-filter is already applied by the helper, in
+          # picking which translation units to name here.
+          # shellcheck disable=SC2086 # intentional word-splitting for extra args
+          pixi run --locked -e "$TIDY_ENV" -- \
+            run-clang-tidy \
+              -p "$BUILD_DIR" \
+              -j "$(nproc)" \
+              -quiet \
+              -line-filter "$(cat line-filter.json)" \
+              -extra-arg=-isystem"$PREFIX/include" \
+              -extra-arg=-Wno-unknown-warning-option \
+              -extra-arg=-Wno-unused-command-line-argument \
+              $EXTRA_ARGS \
+              "${tus[@]}" > clang-tidy-new.log 2>&1
+          echo "tool_rc=$?" >> "$GITHUB_OUTPUT"
+          cat clang-tidy-new.log
+
+      - name: Annotate new findings
+        id: verdict
+        if: github.event_name == 'pull_request' && steps.scope.outputs.changed == 'true'
+        env:
+          ANNOTATION_CAP: 10
+          LEVEL: ${{ inputs.fail-on-new && 'error' || 'warning' }}
+          DEDUP_LOG: clang-tidy-new.dedup.log
+        run: python3 "$RUNNER_TEMP/annotate.py" "$LEVEL" "$GITHUB_WORKSPACE" clang-tidy-new.log
+
+      - name: Gate
+        if: github.event_name == 'pull_request' && steps.scope.outputs.changed == 'true'
+        env:
+          COUNT: ${{ steps.verdict.outputs.count }}
+          TOOL_RC: ${{ steps.gate.outputs.tool_rc }}
+          MISSING: ${{ steps.gate.outputs.missing }}
+          FAIL_ON_NEW: ${{ inputs.fail-on-new }}
+          FAIL_ON_TOOL_ERROR: ${{ inputs.fail-on-tool-error }}
+        run: |
+          fail=0
+          if [ "${MISSING:-0}" != "0" ]; then
+            echo "::error::$MISSING changed source file(s) have no compile command, so nothing analysed them. Add them to the build, or leave them out with the pathspecs input."
+            [ "$FAIL_ON_TOOL_ERROR" = "true" ] && fail=1
+          fi
+          if [ "$TOOL_RC" != "0" ]; then
+            echo "::error::clang-tidy exited with status $TOOL_RC. That is a parse failure or a file with no compile command, not a finding about the code."
+            [ "$FAIL_ON_TOOL_ERROR" = "true" ] && fail=1
+          fi
+          if [ "${COUNT:-0}" != "0" ]; then
+            echo "::error::$COUNT clang-tidy finding(s) on lines this pull request changed."
+            [ "$FAIL_ON_NEW" = "true" ] && fail=1
+          else
+            echo "No clang-tidy findings on changed lines."
+          fi
+          exit "$fail"
+
+      # ---- push: whole tree, reported but never fatal ----------------------
+      - name: clang-tidy (full tree)
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        env:
+          TIDY_ENV: ${{ inputs.environment }}
+          BUILD_DIR: ${{ inputs.build-dir }}
+          PREFIX: ${{ steps.tools.outputs.prefix }}
+          SOURCE_FILTER: ${{ inputs.source-filter }}
+          EXTRA_ARGS: ${{ inputs.extra-args }}
+        run: |
+          set -uo pipefail
+          # shellcheck disable=SC2086 # intentional word-splitting for extra args
+          pixi run --locked -e "$TIDY_ENV" -- \
+            run-clang-tidy \
+              -p "$BUILD_DIR" \
+              -j "$(nproc)" \
+              -quiet \
+              -source-filter "$SOURCE_FILTER" \
+              -extra-arg=-isystem"$PREFIX/include" \
+              -extra-arg=-Wno-unknown-warning-option \
+              -extra-arg=-Wno-unused-command-line-argument \
+              $EXTRA_ARGS \
+              > clang-tidy-full.log 2>&1
+          echo "run-clang-tidy exited $?"
+
+      - name: Summarise the backlog
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        env:
+          ANNOTATION_CAP: 10
+        run: python3 "$RUNNER_TEMP/annotate.py" warning "$GITHUB_WORKSPACE" clang-tidy-full.log
+
+      - name: Upload the clang-tidy log
+        if: always() && (github.event_name != 'pull_request' || steps.scope.outputs.changed == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-tidy-log
+          path: |
+            clang-tidy-new.log
+            clang-tidy-full.log
+            patch.diff
+            line-filter.json
+            tidy-tus.txt
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # ---- sticky PR comment, opt-in via the caller's permissions ----------
+      - name: Build the PR comment
+        if: failure() && inputs.comment-on-failure && github.event_name == 'pull_request'
+        env:
+          COUNT: ${{ steps.verdict.outputs.count }}
+          TOOL_RC: ${{ steps.gate.outputs.tool_rc }}
+          MISSING: ${{ steps.gate.outputs.missing }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # failure() fires for the build and the tooling probe too, and those
+          # are not findings about the code, so the same three numbers the Gate
+          # step judges on decide what this says. They are empty when the step
+          # that sets them never ran.
+          #
+          # The deduplicated log, because a finding in a header is reported once
+          # per translation unit that includes it and the raw log keeps every
+          # copy. Both are empty unless clang-tidy itself had something to say.
+          log=clang-tidy-new.dedup.log
+          [ -s "$log" ] || log=clang-tidy-new.log
+          {
+            echo '<!-- clang-tidy-report -->'
+            if [ "${COUNT:-0}" != "0" ]; then
+              echo '## ❌ clang-tidy found new issues'
+              echo
+              echo 'These are on lines this pull request adds or changes. Findings'
+              echo 'elsewhere in the same files are left alone.'
+            elif [ "${MISSING:-0}" != "0" ] || [ "${TOOL_RC:-0}" != "0" ]; then
+              echo '## ❌ clang-tidy could not analyse this pull request'
+              echo
+              echo 'It errored rather than reporting on the code: a translation'
+              echo 'unit it could not parse, or a changed source file with no'
+              echo 'compile command.'
+            else
+              echo '## ❌ the clang-tidy job failed'
+              echo
+              echo 'It failed before reaching the code, in the build or the setup.'
+            fi
+            echo
+            echo "[Job log]($RUN_URL)"
+            if [ -s "$log" ]; then
+              echo
+              echo '```'
+              sed -r 's/\x1b\[[0-9;]*[mK]//g' "$log" | tail -c 60000
+              echo '```'
+            fi
+          } > comment-body.md
+      - name: Find the existing comment
+        id: find-comment
+        if: always() && inputs.comment-on-failure && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- clang-tidy-report -->'
+      - name: Post the failure comment
+        if: failure() && inputs.comment-on-failure && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: comment-body.md
+          edit-mode: replace
+      - name: Resolve the comment on success
+        if: success() && inputs.comment-on-failure && github.event_name == 'pull_request' && steps.find-comment.outputs.comment-id != ''
+        continue-on-error: true
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          body: |
+            <!-- clang-tidy-report -->
+            ## ✅ clang-tidy: no new issues
+          edit-mode: replace
