@@ -408,8 +408,10 @@ simply has nothing to gate.
 The script will not require a check unless it has reported on the default
 branch and the workflow that produced it triggers on `merge_group`. Either
 gap would leave every pull request waiting on a status that never arrives, so
-when one is found the repository is left exactly as it is and the run exits
-nonzero. The aggregator job has to land before the ruleset does.
+when one is found the repository's rulesets and branch protection are left
+untouched and the run exits nonzero. The merge-method toggles are settled
+earlier and are written either way. The aggregator job has to land before the
+ruleset does.
 
 ### CODEOWNERS
 
