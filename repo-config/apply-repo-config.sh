@@ -84,14 +84,24 @@ required_contexts() {
 }
 
 # Resolve the workflow file that produced a check run on the default branch, by
-# way of its check suite. Prints nothing when the suite has no workflow run.
+# way of its check suite. Only a workflow living in the repository itself can be
+# read back, and a run is reported as "owner/repo/.github/workflows/x.yml@ref"
+# when it belongs elsewhere, so the ref and our own prefix are trimmed off and
+# anything still pointing at another repository is dropped rather than resolved
+# against a same-named file here. Prints nothing when nothing is resolvable,
+# which the caller treats as a failure.
 workflow_for_context() {
   local repo=$1 ctx=$2 runs_json=$3 suite
   suite=$(jq -r --arg c "$ctx" \
     'first(.check_runs[] | select(.name == $c) | .check_suite.id) // empty' <<<"$runs_json")
   [ -n "$suite" ] || return 0
-  gh api "repos/$org/$repo/actions/runs?check_suite_id=$suite" \
-    --jq '.workflow_runs[].path' 2>/dev/null || true
+  gh api "repos/$org/$repo/actions/runs?check_suite_id=$suite" 2>/dev/null |
+    jq -r --arg prefix "$org/$repo/" '
+      .workflow_runs[].path
+      | sub("@[^@]*$"; "")
+      | if startswith(".github/") then .
+        elif startswith($prefix) then ltrimstr($prefix)
+        else empty end' 2>/dev/null || true
 }
 
 # A workflow that does not trigger on merge_group never reports inside the
@@ -153,11 +163,17 @@ for repo in $(jq -r '.repos | keys[]' "$config"); do
         missing+=("$ctx")
         continue
       fi
+      found=false
       while IFS= read -r path; do
         [ -n "$path" ] || continue
+        found=true
         workflow_has_merge_group "$repo" "$path" "$default_branch" ||
           unqueued+=("$ctx ($path)")
       done < <(workflow_for_context "$repo" "$ctx" "$check_runs")
+      # No workflow resolved is not a pass. The trigger cannot be confirmed, and
+      # a required context that never reports inside the queue is exactly what
+      # this gate exists to catch.
+      $found || unqueued+=("$ctx (no workflow found)")
     done < <(required_contexts <<<"$want_review")
   fi
   if [ ${#missing[@]} -gt 0 ] || [ ${#unqueued[@]} -gt 0 ]; then
@@ -165,7 +181,7 @@ for repo in $(jq -r '.repos | keys[]' "$config"); do
     [ ${#missing[@]} -eq 0 ] ||
       echo "  BLOCKED   never reported on $default_branch: ${missing[*]}"
     [ ${#unqueued[@]} -eq 0 ] ||
-      echo "  BLOCKED   reported but no merge_group trigger: ${unqueued[*]}"
+      echo "  BLOCKED   reported but no confirmed merge_group trigger: ${unqueued[*]}"
     echo "            add the aggregator job and a merge_group: trigger first;"
     echo "            leaving this repo's rulesets untouched"
     continue
@@ -185,6 +201,7 @@ for repo in $(jq -r '.repos | keys[]' "$config"); do
   done
   # An empty include list matches nothing, which is how Geometry's legacy
   # ruleset ended up inert; it is still ours to clear.
+  stale_ids=()
   for stale in $(jq -r --arg d "refs/heads/$default_branch" '
       .[] | select(.name != "main-1" and .name != "main-2")
           | select(.target == "branch")
@@ -192,9 +209,7 @@ for repo in $(jq -r '.repos | keys[]' "$config"); do
           | "\(.id):\(.name)"' <<<"$live_rulesets"); do
     changed=1
     echo "  ruleset   ${stale#*:} (${stale%%:*}) -> delete (superseded)"
-    if $apply; then
-      gh api --method DELETE "repos/$org/$repo/rulesets/${stale%%:*}"
-    fi
+    stale_ids+=("${stale%%:*}")
   done
 
   for name in main-1 main-2; do
@@ -227,6 +242,15 @@ for repo in $(jq -r '.repos | keys[]' "$config"); do
       fi
     fi
   done
+
+  # The superseded rulesets go now rather than before the loop above, for the
+  # same reason classic protection goes last: set -e aborts on a failed create
+  # or update, and an obsolete ruleset left standing beats no protection at all.
+  if $apply && [ ${#stale_ids[@]} -gt 0 ]; then
+    for stale_id in "${stale_ids[@]}"; do
+      gh api --method DELETE "repos/$org/$repo/rulesets/$stale_id"
+    done
+  fi
 
   # 4. Classic branch protection stacks on top of rulesets and the union is
   #    enforced, so leaving it in place hides rules we are not managing. It is
