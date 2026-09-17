@@ -30,7 +30,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y graphviz doxygen
       - name: Generate Doxygen
         run: doxygen "${{ inputs.doxyfile }}"
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ inputs.html-dir }}
   deploy:
