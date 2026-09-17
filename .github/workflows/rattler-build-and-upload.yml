@@ -52,7 +52,7 @@ jobs:
           locked: true  # fails the job if pixi.lock is dirty
 
       - name: Cache rattler-build package downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/rattler
           key: rattler-${{ runner.os }}-${{ github.run_id }}
