@@ -42,7 +42,7 @@ jobs:
     if: inputs.mode == 'store'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           pattern: ${{ inputs.artifact-pattern }}
@@ -78,7 +78,7 @@ jobs:
     if: inputs.mode == 'compare'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
