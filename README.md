@@ -302,6 +302,31 @@ Inputs: `mode` (required, `store` or `compare`), `reference-branch`
 `metrics-*`), `notes-ref-prefix` (default `ci/physics-metrics`),
 `comment-on-pr` (default `true`).
 
+## Renovate preset
+
+The organisation's shared [Renovate](https://docs.renovatebot.com/) config
+lives in [`default.json`](default.json) at the repository root, which is where
+Renovate looks for a repository's default preset. Repositories opt in with a
+root `renovate.json`:
+
+```json
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["local>ShipSoft/.github"]
+}
+```
+
+The preset extends `config:recommended`, enables the pre-commit manager, runs
+at weekends with at most five open PRs, compares pixi conda dependencies with
+conda versioning instead of the manager's pep440 default, leaves the pinned
+`python` interpreter alone (`pixi-lock-update.yml` handles in-series patches),
+and tracks CMake `FetchContent` `GIT_TAG`s that point at GitHub.
+
+A repository needing an exception adds its own `packageRules` next to the
+`extends`: FairShip disables Eigen updates because acts-ship requires an exact
+version. This repository carries `renovate.json` too, so Renovate keeps the
+actions pinned in the reusable workflows above up to date for every caller.
+
 ## Contributor setup snippet
 
 Repositories that lint via `prek.yml` should document the matching local
