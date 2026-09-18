@@ -478,17 +478,25 @@ jobs:
           FAIL_ON_NEW: ${{ inputs.fail-on-new }}
           FAIL_ON_TOOL_ERROR: ${{ inputs.fail-on-tool-error }}
         run: |
+          # Report at the level that matches the consequence. A repository in
+          # its soak period runs with fail-on-new disabled, and an error-level
+          # annotation on a job that then passes reads as a broken workflow
+          # rather than as the notice it is.
           fail=0
+          tool_level=notice
+          new_level=notice
+          [ "$FAIL_ON_TOOL_ERROR" = "true" ] && tool_level=error
+          [ "$FAIL_ON_NEW" = "true" ] && new_level=error
           if [ "${MISSING:-0}" != "0" ]; then
-            echo "::error::$MISSING changed source file(s) have no compile command, so nothing analysed them. Add them to the build, or leave them out with the pathspecs input."
+            echo "::$tool_level::$MISSING changed source file(s) have no compile command, so nothing analysed them. Add them to the build, or leave them out with the pathspecs input."
             [ "$FAIL_ON_TOOL_ERROR" = "true" ] && fail=1
           fi
           if [ "$TOOL_RC" != "0" ]; then
-            echo "::error::clang-tidy exited with status $TOOL_RC. That is a parse failure or a file with no compile command, not a finding about the code."
+            echo "::$tool_level::clang-tidy exited with status $TOOL_RC. That is a parse failure or a file with no compile command, not a finding about the code."
             [ "$FAIL_ON_TOOL_ERROR" = "true" ] && fail=1
           fi
           if [ "${COUNT:-0}" != "0" ]; then
-            echo "::error::$COUNT clang-tidy finding(s) on lines this pull request changed."
+            echo "::$new_level::$COUNT clang-tidy finding(s) on lines this pull request changed."
             [ "$FAIL_ON_NEW" = "true" ] && fail=1
           else
             echo "No clang-tidy findings on changed lines."
