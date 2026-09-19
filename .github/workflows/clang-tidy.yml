@@ -109,7 +109,7 @@ jobs:
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0          # the ratchet needs base..head
           lfs: ${{ inputs.lfs }}
