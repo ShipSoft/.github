@@ -600,7 +600,7 @@ jobs:
       - name: Post the failure comment
         if: failure() && inputs.comment-on-failure && github.event_name == 'pull_request'
         continue-on-error: true
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
@@ -609,7 +609,7 @@ jobs:
       - name: Resolve the comment on success
         if: success() && inputs.comment-on-failure && github.event_name == 'pull_request' && steps.find-comment.outputs.comment-id != ''
         continue-on-error: true
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
           body: |
