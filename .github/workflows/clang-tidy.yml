@@ -356,7 +356,7 @@ jobs:
               o.write(f"missing={len(missing)}\n")
           PY
 
-      - uses: prefix-dev/setup-pixi@v0.9.6
+      - uses: prefix-dev/setup-pixi@v0.10.2
         if: github.event_name != 'pull_request' || steps.scope.outputs.changed == 'true'
         with:
           environments: ${{ inputs.environment }}
