@@ -347,9 +347,13 @@ jobs:
                      "translation unit in the compilation database includes "
                      "them")
           if missing:
-              report(missing, "error", "Not analysed, because they have no "
-                     "compile command. Add them to the build, or leave them "
-                     "out with the pathspecs input")
+              # The Gate decides whether this is fatal, through
+              # fail-on-tool-error; annotate at the level that matches, or an
+              # error annotation lands on a job that then passes.
+              report(missing, os.environ.get("MISSING_LEVEL", "error"),
+                     "Not analysed, because they have no compile command. Add "
+                     "them to the build, or leave them out with the pathspecs "
+                     "input")
           # Read back by the Gate step, which decides through fail-on-tool-error
           # what a source file the build does not know about is worth.
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as o:
@@ -428,6 +432,7 @@ jobs:
           PREFIX: ${{ steps.tools.outputs.prefix }}
           SOURCE_FILTER: ${{ inputs.source-filter }}
           EXTRA_ARGS: ${{ inputs.extra-args }}
+          MISSING_LEVEL: ${{ inputs.fail-on-tool-error && 'error' || 'warning' }}
         run: |
           set -uo pipefail
           : > clang-tidy-new.log
