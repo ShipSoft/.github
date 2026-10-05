@@ -23,6 +23,7 @@
     "geometry_service":            {"tier": "full",   "codeowners": false},
     "ship-ci-metrics":             {"tier": "full",   "codeowners": false},
     "ship-conda-recipes":          {"tier": "full",   "codeowners": false},
+    "ship-random":                 {"tier": "full",   "codeowners": false},
     "shipdist":                    {"tier": "full",   "codeowners": false},
     "sea-cucumber":                {"tier": "single", "codeowners": false},
     ".github":                     {"tier": "none",   "codeowners": false},
