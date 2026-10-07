@@ -349,15 +349,20 @@ CheckOptions:
 `Checks` concatenates with the parent's and the later entry wins, so a layer
 can switch a check off; `CheckOptions` merges, so it can also configure one the
 shared file leaves silent. `readability-identifier-naming` is the case that
-matters today: the shared config enables it but sets no cases, so it says
-nothing until a repo opts in like this.
+matters today: the shared config sets the namespace rule (see below) and leaves
+every other identifier kind unset, so the check says nothing about those until a
+repository opts in like this.
 
-The file clang-tidy is handed is the translation unit, not the header it ends
-up reporting on. It takes the config from the parent directories of the `.cxx`
-and checks the whole translation unit against it, headers included, so a layer
-in `include/` is never read. Put one in each source directory that needs it.
-config-sync only ever writes the paths in its `files` list, so these never
-collide with it.
+Which layer applies is decided per *reported* file, not per translation unit:
+`GetConfigPerFile` is on by default, so a diagnostic about a name declared in a
+header takes its configuration from that header's directory, even when the
+translation unit sits elsewhere with a different layer. Put a layer in each
+directory whose *declarations* it governs, `include/` included. config-sync only
+ever writes the paths in its `files` list, so these never collide with it.
+
+To confirm this for a layer you have just added, make a deliberate violation in
+one of the files it should govern and check that clang-tidy reports it. A layer
+that is never read fails silently and looks exactly like a clean tree.
 
 Inputs: `base` (required), `files` (newline-separated, default `AI_POLICY.md`),
 `pr-branch`, `pr-label`.
@@ -409,6 +414,55 @@ Inputs: `mode` (required, `store` or `compare`), `reference-branch`
 (required), `config` (required for compare), `artifact-pattern` (default
 `metrics-*`), `notes-ref-prefix` (default `ci/physics-metrics`),
 `comment-on-pr` (default `true`).
+
+## Namespace convention
+
+`SHiP` is the single top-level C++ namespace across the ShipSoft repositories,
+spelled after the collaboration. Everything nested inside it is `lower_case`:
+
+```cpp
+namespace SHiP { ... }                  // the data model's persistent classes
+namespace SHiP::units { ... }
+namespace SHiP::geometry { ... }
+namespace SHiP::geometry::calo { ... }
+namespace SHiP::aegir::g4 { ... }
+```
+
+A type inside `SHiP` does not repeat it. `SHiP::GeometryService`, not
+`SHiP::SHiPGeometryService`; `SHiP::geometry::Materials`, not
+`SHiPGeometry::SHiPMaterials`.
+
+Two mechanisms hold this, because neither covers it alone.
+
+`sync/.clang-tidy` carries the case rule, as
+`readability-identifier-naming.NamespaceCase: lower_case` with
+`NamespaceIgnoredRegexp: '^SHiP$'`. The regexp is anchored at both ends, so a
+name that merely starts with it, such as `SHiPGeometry`, is still a finding.
+
+What that check cannot say is that one particular lower_case name is wrong.
+`ship` passes `lower_case`, but it is the pre-2026 spelling that three
+repositories ended up sharing by accident, and it must not come back.
+`readability-identifier-naming` has no forbidden-name option, so the
+`forbid-ship-namespace` hook in [`.pre-commit-hooks.yaml`](.pre-commit-hooks.yaml)
+covers that half. A repository opts in with one entry:
+
+```yaml
+  - repo: https://github.com/ShipSoft/.github
+    rev: <tag>
+    hooks:
+      - id: forbid-ship-namespace
+```
+
+prek and pre-commit want an immutable `rev`, and this repository carries no tags
+yet, so consuming the hook needs the first one cut. Once it exists, the shared
+Renovate preset enables the pre-commit manager, so the `rev` is kept current for
+every caller without anyone editing it.
+
+The hook matches namespace *definitions* only, so a transitional
+`namespace ship = SHiP;` alias still compiles while a repository's downstreams
+migrate. It deliberately does not fire on a lower_case name that is simply not
+nested under `SHiP` — neither mechanism knows a namespace's nesting depth, so a
+stray top-level `namespace shannon` is caught in review rather than by a tool.
 
 ## Renovate preset
 
