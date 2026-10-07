@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: CERN for the benefit of the SHiP Collaboration
+# SPDX-License-Identifier: LGPL-3.0-or-later
+#
+# Shared prek/pre-commit hooks for the ShipSoft repositories. A repository opts
+# in with one entry in its .pre-commit-config.yaml:
+#
+#   - repo: https://github.com/ShipSoft/.github
+#     rev: <tag>
+#     hooks:
+#       - id: forbid-ship-namespace
+#
+# These are pygrep hooks, which fail when the pattern matches. They exist
+# because clang-tidy cannot express them: readability-identifier-naming checks
+# the case of a name, and has no way to forbid a particular spelling.
+- id: forbid-ship-namespace
+  name: forbid namespaces other than SHiP and its lower_case children
+  language: pygrep
+  types_or: [c++, c]
+  # Matches a namespace *definition* whose name is `ship`, or starts with Ship,
+  # ship or SHiP and continues. So these are findings:
+  #
+  #   namespace ship {              the pre-2026 spelling, migrated off
+  #   namespace ship::detail {      same, in the nested form
+  #   namespace SHiPGeometry {      the collaboration named twice
+  #   namespace shipdisp {          a per-repository top level
+  #   namespace ShipUnit {
+  #
+  # and these are not:
+  #
+  #   namespace SHiP {              the one top-level namespace
+  #   namespace SHiP::geometry {    anything nested below it
+  #   namespace geometry {
+  #   namespace ship = SHiP;        a transitional alias, which declares nothing
+  #
+  # The trailing (?:::|\s*\{) is what distinguishes a definition from an alias:
+  # an alias is followed by `=`. clang-tidy covers the general case rule, so this
+  # hook only has to catch the ship-flavoured spellings that are lower_case and
+  # would otherwise pass.
+  entry: 'namespace\s+(?:ship|[Ss]hip[A-Za-z0-9_]+|SHiP[A-Za-z0-9_]+)(?:::|\s*\{)'
