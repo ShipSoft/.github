@@ -464,6 +464,11 @@ migrate. It deliberately does not fire on a lower_case name that is simply not
 nested under `SHiP` — neither mechanism knows a namespace's nesting depth, so a
 stray top-level `namespace shannon` is caught in review rather than by a tool.
 
+The hook reads each file whole, so it also catches a definition with the
+opening brace on its own line. `tests/forbid-ship-namespace.sh` runs the hook
+against the fixtures next to it, and the `test hooks` workflow runs that script
+on every change to the hook.
+
 ## Renovate preset
 
 The organisation's shared [Renovate](https://docs.renovatebot.com/) config

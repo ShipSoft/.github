@@ -1,0 +1,28 @@
+name: test hooks
+
+# Not reusable: this tests the hooks this repository publishes in
+# .pre-commit-hooks.yaml against the fixtures under tests/.
+
+on:
+  pull_request:
+    paths:
+      - .pre-commit-hooks.yaml
+      - tests/**
+      - .github/workflows/test-hooks.yml
+  push:
+    branches: [main]
+    paths:
+      - .pre-commit-hooks.yaml
+      - tests/**
+      - .github/workflows/test-hooks.yml
+
+permissions:
+  contents: read
+
+jobs:
+  forbid-ship-namespace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: pipx install pre-commit
+      - run: tests/forbid-ship-namespace.sh

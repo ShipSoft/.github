@@ -24,6 +24,8 @@
   #   namespace SHiPGeometry {      the collaboration named twice
   #   namespace shipdisp {          a per-repository top level
   #   namespace ShipUnit {
+  #   namespace ship                with the brace on the next line
+  #   {
   #
   # and these are not:
   #
@@ -36,4 +38,9 @@
   # an alias is followed by `=`. clang-tidy covers the general case rule, so this
   # hook only has to catch the ship-flavoured spellings that are lower_case and
   # would otherwise pass.
+  #
+  # --multiline makes pygrep search the whole file rather than each line, so
+  # \s can cross a newline and reach a brace on the next line. The fixtures in
+  # tests/forbid-ship-namespace/ cover each case above.
+  args: [--multiline]
   entry: 'namespace\s+(?:ship|[Ss]hip[A-Za-z0-9_]+|SHiP[A-Za-z0-9_]+)(?:::|\s*\{)'
