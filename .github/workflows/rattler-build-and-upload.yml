@@ -14,6 +14,13 @@ on:
           configured channels. Leave empty to build all recipes under recipe-dir.
         type: string
         default: ''
+      platforms:
+        description: |
+          JSON list of conda subdirs to build natively, one job each. Supported:
+          linux-64, linux-aarch64, osx-arm64. noarch packages are uploaded
+          and kept as artifacts from the first platform's job only.
+        type: string
+        default: '["linux-64"]'
       force:
         description: Drop --skip-existing (use to rebuild on the same version).
         type: boolean
@@ -53,9 +60,29 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(inputs.platforms) }}
+    runs-on: >-
+      ${{ matrix.platform == 'linux-aarch64' && 'ubuntu-24.04-arm'
+       || matrix.platform == 'osx-arm64' && 'macos-15'
+       || 'ubuntu-latest' }}
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      # Every job builds the noarch packages its recipes need, but only one
+      # job publishes them.
+      KEEP_NOARCH: ${{ matrix.platform == fromJSON(inputs.platforms)[0] }}
     steps:
       - uses: actions/checkout@v7
+
+      - name: Check platform
+        run: |
+          case "$PLATFORM" in
+            linux-64|linux-aarch64|osx-arm64) ;;
+            *) echo "::error::Unsupported platform '$PLATFORM'"; exit 1 ;;
+          esac
 
       - uses: prefix-dev/setup-pixi@v0.11.0
         with:
@@ -65,9 +92,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/rattler
-          key: rattler-${{ runner.os }}-${{ github.run_id }}
+          key: rattler-${{ matrix.platform }}-${{ github.run_id }}
           restore-keys: |
-            rattler-${{ runner.os }}-
+            rattler-${{ matrix.platform }}-
 
       - name: Build with rattler-build
         env:
@@ -107,14 +134,30 @@ jobs:
 
           pixi run rattler-build build "${target[@]}" "${channel_args[@]}" "${variant_args[@]}" "${skip_args[@]}"
 
+      - name: Collect packages to publish
+        if: always()
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p publish
+          files=("output/$PLATFORM"/*.conda)
+          if [ "$KEEP_NOARCH" = "true" ]; then
+            files+=(output/noarch/*.conda)
+          fi
+          for f in "${files[@]}"; do
+            subdir=$(basename "$(dirname "$f")")
+            mkdir -p "publish/$subdir"
+            cp "$f" "publish/$subdir/"
+          done
+
       - name: Build summary
         if: always()
         run: |
           {
-            echo "## Build summary"
+            echo "## Build summary ($PLATFORM)"
             echo
             shopt -s nullglob
-            files=(output/linux-64/*.conda output/noarch/*.conda)
+            files=(publish/*/*.conda)
             if [ "${#files[@]}" -eq 0 ]; then
               echo "_No \`.conda\` artifacts produced._"
             else
@@ -123,7 +166,7 @@ jobs:
               echo "| File | Size |"
               echo "|------|------|"
               for f in "${files[@]}"; do
-                size=$(stat -c%s "$f")
+                size=$(wc -c < "$f" | tr -d ' ')
                 if [ "$size" -ge 1048576 ]; then
                   hsize="$(awk -v s="$size" 'BEGIN{printf "%.1f MiB", s/1048576}')"
                 else
@@ -138,10 +181,8 @@ jobs:
         if: ${{ !inputs.upload }}
         uses: actions/upload-artifact@v7
         with:
-          name: conda-packages
-          path: |
-            output/linux-64/*.conda
-            output/noarch/*.conda
+          name: conda-packages-${{ matrix.platform }}
+          path: publish/
           if-no-files-found: ignore
           retention-days: ${{ inputs.artifact-retention-days }}
 
@@ -162,7 +203,7 @@ jobs:
             auth_args=(--api-key "$PREFIX_DEV_API_KEY")
           fi
           uploaded=0
-          for pkg in output/linux-64/*.conda output/noarch/*.conda; do
+          for pkg in publish/*/*.conda; do
             pixi run rattler-build upload prefix \
               "${auth_args[@]}" \
               -c "$CHANNEL" \
