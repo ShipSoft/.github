@@ -61,6 +61,56 @@ Inputs: `tasks` (JSON array, default `'["test"]'`), `lfs`, `runs-on`,
 `cache`, `env-vars`, `artifact-name`, `artifact-path`,
 `artifact-retention-days`, `ccache` (default `true`), `ccache-key`.
 
+### `pixi-main-deps.yml`
+
+Builds the caller against the `main` branch of a ShipSoft library before that
+library is released. ship-conda-recipes builds each library's main nightly
+into [prefix.dev/ship-nightly](https://prefix.dev/channels/ship-nightly)
+(`nightly-main.yml` there). This workflow points the named packages at that
+channel in `pixi.toml`, updates only those packages in `pixi.lock`, and runs
+the tasks. Everything else stays at its locked version, so a failure comes
+from the swapped library or from the PR.
+
+Use one matrix entry per library, so a red job names the library that caused
+it:
+
+```yaml
+name: "Advisory: build against library main"
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  main-deps:
+    name: vs ${{ matrix.dep.name }} main (advisory)
+    strategy:
+      fail-fast: false
+      matrix:
+        dep:
+          - { name: ship-random, packages: '["ship-random"]' }
+          - { name: field-service, packages: '["field-service-*"]' }
+    uses: ShipSoft/.github/.github/workflows/pixi-main-deps.yml@main
+    with:
+      packages: ${{ matrix.dep.packages }}
+      tasks: '["configure", "build", "install", "test"]'
+```
+
+These jobs are advisory. Keep them in their own workflow, don't trigger it on
+`merge_group`, and never call the job `All checks passed`; the rulesets then
+leave it out of the required checks (see [Required checks](#required-checks)).
+
+Glob patterns in `packages` match the manifest's entries. An exact name the
+manifest doesn't list (a transitive dependency, e.g. `shipgeometry` for a repo
+that uses only `shipgeometryservice`) is added as a dependency. The pin
+accepts any version, because a main build carries the version of the last
+release. The step summary shows the manifest diff and the nightly builds that
+were resolved; their build string `main_<sha7>_<hash>` names the commit.
+
+Inputs: `packages` (JSON array, required), `tasks` (JSON array, default
+`'["test"]'`), `environment` (default `default`), `nightly-channel` (default
+`https://prefix.dev/ship-nightly`), `lfs`, `runs-on`, `env-vars`, `ccache`
+(default `true`).
+
 ### `doxygen-gh-pages.yml`
 
 Generates Doxygen HTML and publishes it to the `gh-pages` branch,

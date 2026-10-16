@@ -1,0 +1,188 @@
+name: Pixi build against library main (reusable)
+
+# Build the caller against the main branch of one ShipSoft library, taken
+# from the nightly channel that ship-conda-recipes fills
+# (nightly-main.yml there). The named packages are re-pointed at that
+# channel in pixi.toml and only they are updated in pixi.lock, so the build
+# differs from the regular one by the swapped library alone.
+#
+# Meant for advisory jobs: do not name the calling job `All checks passed`
+# or list it in a ruleset.
+
+on:
+  workflow_call:
+    inputs:
+      packages:
+        description: |
+          JSON array of conda package names to take from the nightly channel.
+          Shell-style globs match manifest entries (e.g. "field-service-*");
+          an exact name the manifest doesn't list is added as a dependency.
+        type: string
+        required: true
+      tasks:
+        description: JSON array of pixi task names to run in order
+        type: string
+        default: '["test"]'
+      environment:
+        description: pixi environment to run the tasks in
+        type: string
+        default: default
+      nightly-channel:
+        description: Channel holding the main builds
+        type: string
+        default: https://prefix.dev/ship-nightly
+      lfs:
+        description: Fetch git-lfs objects during checkout
+        type: boolean
+        default: false
+      runs-on:
+        description: Runner label
+        type: string
+        default: ubuntu-latest
+      env-vars:
+        description: |
+          Newline-separated KEY=VALUE pairs exported to GITHUB_ENV before the
+          tasks run.
+        type: string
+        default: ''
+      ccache:
+        description: Cache compiler output with ccache across runs
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: ${{ inputs.lfs }}
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.11.0
+        with:
+          run-install: false
+          cache: false
+      - name: Pin packages to the nightly channel
+        id: pin
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          CHANNEL: ${{ inputs.nightly-channel }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/pin.py" <<'PY'
+          """Point the named conda dependencies of a pixi manifest at one channel."""
+          import difflib, fnmatch, json, os, sys
+          import tomlkit
+
+          manifest, channel, names_out = sys.argv[1:4]
+          patterns = json.loads(os.environ["PACKAGES"])
+          before = open(manifest, encoding="utf-8").read()
+          doc = tomlkit.parse(before)
+
+          ws = doc.get("workspace") or doc.get("project")
+          if ws is None:
+              sys.exit(f"{manifest}: no [workspace] table")
+          channels = ws.setdefault("channels", tomlkit.array())
+          if channel not in [c if isinstance(c, str) else c.get("channel") for c in channels]:
+              channels.append(channel)
+
+          def dep_tables(scope):
+              for key in ("dependencies", "host-dependencies", "build-dependencies"):
+                  if key in scope:
+                      yield scope[key]
+              for target in scope.get("target", {}).values():
+                  yield from dep_tables(target)
+
+          spec = tomlkit.inline_table()
+          spec.update({"version": "*", "channel": channel})
+          used, swapped = set(), set()
+          for scope in [doc, *doc.get("feature", {}).values()]:
+              for table in dep_tables(scope):
+                  for name in list(table.keys()):
+                      hits = [p for p in patterns if fnmatch.fnmatchcase(name, p)]
+                      if hits:
+                          # Any version: main builds carry the last release's.
+                          table[name] = spec.copy()
+                          used.update(hits)
+                          swapped.add(name)
+
+          # An exact name the manifest doesn't list is a transitive dependency
+          # (e.g. shipgeometry under shipgeometryservice): add it at top level.
+          for p in patterns:
+              if p not in used and not any(c in p for c in "*?["):
+                  doc.setdefault("dependencies", tomlkit.table())[p] = spec.copy()
+                  used.add(p)
+                  swapped.add(p)
+          if unused := [p for p in patterns if p not in used]:
+              sys.exit(f"{manifest}: no dependency matches {unused}")
+
+          after = tomlkit.dumps(doc)
+          open(manifest, "w", encoding="utf-8").write(after)
+          open(names_out, "w").write(" ".join(sorted(swapped)))
+          sys.stdout.writelines(difflib.unified_diff(
+              before.splitlines(True), after.splitlines(True), manifest, manifest))
+          PY
+          pixi exec --spec python=3.13 --spec tomlkit \
+            python "$RUNNER_TEMP/pin.py" pixi.toml "$CHANNEL" "$RUNNER_TEMP/names" \
+            > "$RUNNER_TEMP/manifest.diff"
+          echo "names=$(cat "$RUNNER_TEMP/names")" >> "$GITHUB_OUTPUT"
+          {
+            echo "## pixi.toml changes"
+            echo
+            echo '```diff'
+            cat "$RUNNER_TEMP/manifest.diff"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Update the lock for the pinned packages only
+        env:
+          NAMES: ${{ steps.pin.outputs.names }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          CHANNEL: ${{ inputs.nightly-channel }}
+        run: |
+          set -euo pipefail
+          # `pixi lock` alone keeps a locked package whose spec only changed
+          # channel, so update the swapped packages explicitly. Everything
+          # else keeps its locked version.
+          pixi lock
+          # shellcheck disable=SC2086  # NAMES is a space-separated list
+          pixi update $NAMES
+          {
+            echo
+            echo "## Resolved from the nightly channel"
+            echo
+            echo "| Package | Version | Build |"
+            echo "|---------|---------|-------|"
+            pixi list -e "$ENVIRONMENT" --json |
+              jq -r --arg ch "${CHANNEL%/}" \
+                '.[] | select((.source // "") | startswith($ch))
+                 | "| \(.name) | \(.version) | `\(.build)` |"'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: hendrikmuhs/ccache-action@v1
+        if: inputs.ccache
+        with:
+          key: ${{ inputs.runs-on }}-main-deps
+      - name: Route compilation through ccache
+        if: inputs.ccache
+        run: |
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+      - name: Export env vars
+        if: inputs.env-vars != ''
+        env:
+          ENV_VARS: ${{ inputs.env-vars }}
+        run: |
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "$line" >> "$GITHUB_ENV"
+          done <<< "$ENV_VARS"
+      - name: Run pixi tasks
+        env:
+          TASKS_JSON: ${{ inputs.tasks }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          echo "$TASKS_JSON" | jq -r '.[]' | while IFS= read -r task; do
+            echo "::group::pixi run --locked -e $ENVIRONMENT $task"
+            # shellcheck disable=SC2086  # task args are word-split on purpose
+            pixi run --locked -e "$ENVIRONMENT" $task
+            echo "::endgroup::"
+          done
