@@ -76,6 +76,10 @@ jobs:
 
           manifest, channel, names_out = sys.argv[1:4]
           patterns = json.loads(os.environ["PACKAGES"])
+          # Empty would end in a bare `pixi update`, which updates everything.
+          if not isinstance(patterns, list) or not patterns or not all(
+                  isinstance(p, str) and p for p in patterns):
+              sys.exit("packages must be a non-empty JSON array of names")
           before = open(manifest, encoding="utf-8").read()
           doc = tomlkit.parse(before)
 
