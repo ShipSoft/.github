@@ -85,7 +85,8 @@ jobs:
 
           variant_args=()
           while IFS= read -r vc; do
-            vc="${vc//[$'\t\r ']}"
+            vc="${vc#"${vc%%[![:space:]]*}"}"
+            vc="${vc%"${vc##*[![:space:]]}"}"
             [ -z "$vc" ] && continue
             variant_args+=(--variant-config "$vc")
           done <<< "$INPUT_VARIANT_CONFIG"
