@@ -45,7 +45,10 @@ on:
         default: 7
     secrets:
       prefix-dev-api-key:
-        description: prefix.dev API key. Required when upload=true.
+        description: |
+          prefix.dev API key. Leave unset to upload with trusted publishing
+          instead: the caller then grants `id-token: write` and the channel
+          lists the calling workflow as a trusted publisher.
         required: false
 
 jobs:
@@ -146,15 +149,24 @@ jobs:
         if: ${{ inputs.upload }}
         env:
           PREFIX_DEV_API_KEY: ${{ secrets.prefix-dev-api-key }}
+          CHANNEL: ${{ inputs.channel-name }}
+          # Without an API key, rattler-build exchanges the job's OIDC token.
+          # A failed exchange is only logged at debug level; the upload then
+          # goes out anonymously and fails with a bare 403.
+          RUST_LOG: rattler_networking=debug
         run: |
           set -euo pipefail
           shopt -s nullglob
+          auth_args=()
+          if [ -n "$PREFIX_DEV_API_KEY" ]; then
+            auth_args=(--api-key "$PREFIX_DEV_API_KEY")
+          fi
           uploaded=0
           for pkg in output/linux-64/*.conda output/noarch/*.conda; do
             pixi run rattler-build upload prefix \
-              --api-key "$PREFIX_DEV_API_KEY" \
-              -c "${{ inputs.channel-name }}" \
+              "${auth_args[@]}" \
+              -c "$CHANNEL" \
               --skip-existing "$pkg"
             uploaded=$((uploaded + 1))
           done
-          echo "Uploaded $uploaded package(s) to prefix.dev/${{ inputs.channel-name }}."
+          echo "Uploaded $uploaded package(s) to prefix.dev/$CHANNEL."
