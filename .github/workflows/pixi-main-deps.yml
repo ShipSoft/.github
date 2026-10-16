@@ -30,7 +30,7 @@ on:
       nightly-channel:
         description: Channel holding the main builds
         type: string
-        default: https://prefix.dev/ship-nightly
+        default: https://prefix.dev/ship-experiment/nightly
       lfs:
         description: Fetch git-lfs objects during checkout
         type: boolean
