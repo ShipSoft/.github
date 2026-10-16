@@ -32,6 +32,13 @@ on:
         default: |
           https://prefix.dev/ship
           conda-forge
+      variant-config:
+        description: |
+          Newline-separated variant config files (relative to the repository
+          root) to pass via --variant-config, e.g. global compiler pins. They
+          take priority over each recipe's own variants.yaml.
+        type: string
+        default: ''
       artifact-retention-days:
         description: Days to keep the built-package artifact on PR runs.
         type: number
@@ -65,6 +72,7 @@ jobs:
           INPUT_RECIPE: ${{ inputs.recipe }}
           INPUT_FORCE: ${{ inputs.force }}
           INPUT_CHANNELS: ${{ inputs.extra-channels }}
+          INPUT_VARIANT_CONFIG: ${{ inputs.variant-config }}
         run: |
           set -euo pipefail
 
@@ -74,6 +82,13 @@ jobs:
             [ -z "$ch" ] && continue
             channel_args+=(--channel "$ch")
           done <<< "$INPUT_CHANNELS"
+
+          variant_args=()
+          while IFS= read -r vc; do
+            vc="${vc//[$'\t\r ']}"
+            [ -z "$vc" ] && continue
+            variant_args+=(--variant-config "$vc")
+          done <<< "$INPUT_VARIANT_CONFIG"
 
           skip_args=(--skip-existing=all)
           if [ "$INPUT_FORCE" = "true" ]; then
@@ -86,7 +101,7 @@ jobs:
             target=(--recipe-dir "$INPUT_RECIPE_DIR")
           fi
 
-          pixi run rattler-build build "${target[@]}" "${channel_args[@]}" "${skip_args[@]}"
+          pixi run rattler-build build "${target[@]}" "${channel_args[@]}" "${variant_args[@]}" "${skip_args[@]}"
 
       - name: Build summary
         if: always()
