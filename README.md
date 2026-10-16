@@ -65,7 +65,7 @@ Inputs: `tasks` (JSON array, default `'["test"]'`), `lfs`, `runs-on`,
 
 Builds the caller against the `main` branch of a ShipSoft library before that
 library is released. ship-conda-recipes builds each library's main nightly
-into [prefix.dev/ship-nightly](https://prefix.dev/channels/ship-nightly)
+into [prefix.dev/ship-experiment/nightly](https://prefix.dev/channels/@ship-experiment/nightly)
 (`nightly-main.yml` there). This workflow points the named packages at that
 channel in `pixi.toml`, updates only those packages in `pixi.lock`, and runs
 the tasks. Everything else stays at its locked version, so a failure comes
@@ -108,8 +108,8 @@ were resolved; their build string `main_<sha7>_<hash>` names the commit.
 
 Inputs: `packages` (JSON array, required), `tasks` (JSON array, default
 `'["test"]'`), `environment` (default `default`), `nightly-channel` (default
-`https://prefix.dev/ship-nightly`), `lfs`, `runs-on`, `env-vars`, `ccache`
-(default `true`).
+`https://prefix.dev/ship-experiment/nightly`), `lfs`, `runs-on`, `env-vars`,
+`ccache` (default `true`).
 
 ### `doxygen-gh-pages.yml`
 
