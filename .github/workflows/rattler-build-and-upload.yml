@@ -32,12 +32,12 @@ on:
       channel-name:
         description: prefix.dev channel name to upload to (when upload=true).
         type: string
-        default: ship
+        default: ship-experiment/stable
       extra-channels:
         description: Newline-separated channels to pass via --channel during build.
         type: string
         default: |
-          https://prefix.dev/ship
+          https://prefix.dev/ship-experiment/stable
           conda-forge
       variant-config:
         description: |

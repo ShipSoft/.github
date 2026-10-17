@@ -118,7 +118,7 @@ jobs:
               echo "Configuration: $config"
               if [ -n "$reference" ]; then
                 echo "Reference commit: $reference"
-                pixi exec -c https://prefix.dev/ship -c conda-forge --spec ship-ci-metrics \
+                pixi exec -c https://prefix.dev/ship-experiment/stable -c conda-forge --spec ship-ci-metrics \
                   ship-metrics-compare "reference-$config.json" "$f" --config "$CONFIG_FILE"
               else
                 echo "No reference metrics found for $config"
@@ -127,7 +127,7 @@ jobs:
           done
       - name: Generate summary
         run: |
-          pixi exec -c https://prefix.dev/ship -c conda-forge --spec ship-ci-metrics \
+          pixi exec -c https://prefix.dev/ship-experiment/stable -c conda-forge --spec ship-ci-metrics \
             ship-metrics-pr-comment comparisons/ -o comment-body.md
           {
             echo '<!-- physics-metrics-comment -->'
