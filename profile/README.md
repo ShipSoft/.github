@@ -4,7 +4,7 @@ Organisation to manage and develop all software used by the SHiP experiment.
 
 [FairShip](https://github.com/ShipSoft/FairShip) is the main offline software framework, which is used for full simulation, reconstruction and analysis.
 
-The software is built with [pixi](https://pixi.sh) against conda packages, most of them from conda-forge and the rest built from the recipes in [ship-conda-recipes](https://github.com/ShipSoft/ship-conda-recipes) and published to the [ship channel](https://prefix.dev/channels/ship).
+The software is built with [pixi](https://pixi.sh) against conda packages, most of them from conda-forge and the rest built from the recipes in [ship-conda-recipes](https://github.com/ShipSoft/ship-conda-recipes) and published to the [ship-experiment/stable channel](https://prefix.dev/channels/@ship-experiment/stable).
 
 Legacy CVMFS releases are built with [aliBuild](https://github.com/alisw/alibuild) from the recipes in [shipdist](https://github.com/ShipSoft/shipdist), and tracked in [cvmfs_release](https://github.com/ShipSoft/cvmfs_release).
 
