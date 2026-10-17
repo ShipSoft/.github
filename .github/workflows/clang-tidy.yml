@@ -395,7 +395,7 @@ jobs:
           echo "$TASKS_JSON" | jq -r '.[]' | while IFS= read -r task; do
             echo "::group::pixi run -e $TIDY_ENV $task"
             # shellcheck disable=SC2086 # intentional word-splitting for task args
-            pixi run --locked -e "$TIDY_ENV" $task
+            pixi run --locked -e "$TIDY_ENV" $task </dev/null
             echo "::endgroup::"
           done
 

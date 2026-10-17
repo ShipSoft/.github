@@ -184,9 +184,10 @@ jobs:
           TASKS_JSON: ${{ inputs.tasks }}
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
+          set -euo pipefail
           echo "$TASKS_JSON" | jq -r '.[]' | while IFS= read -r task; do
             echo "::group::pixi run --locked -e $ENVIRONMENT $task"
             # shellcheck disable=SC2086  # task args are word-split on purpose
-            pixi run --locked -e "$ENVIRONMENT" $task
+            pixi run --locked -e "$ENVIRONMENT" $task </dev/null
             echo "::endgroup::"
           done
