@@ -83,10 +83,11 @@ jobs:
         env:
           TASKS_JSON: ${{ inputs.tasks }}
         run: |
+          set -euo pipefail
           echo "$TASKS_JSON" | jq -r '.[]' | while IFS= read -r task; do
             echo "::group::pixi run --locked $task"
             # shellcheck disable=SC2086 # intentional word-splitting for positional task args
-            pixi run --locked $task
+            pixi run --locked $task </dev/null
             echo "::endgroup::"
           done
       - name: Upload artifact
