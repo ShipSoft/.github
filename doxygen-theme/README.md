@@ -36,6 +36,10 @@ colours, tree view, SVG graphs) win over the project's.
 
 ## Notes
 
+- `doxygen-awesome-interactive-toc.js` carries one local patch, marked
+  `SHiP patch`: upstream registers the scroll listener once per TOC entry, so
+  long TOCs re-run the update many times per scroll event. Keep the patch when
+  updating doxygen-awesome, unless upstream has fixed it.
 - `HTML_COLORSTYLE = LIGHT` needs Doxygen 1.9.5 or newer.
 - The dark-mode script loads from the footer, so a page opened in dark mode
   shows light for a few milliseconds. Moving the `<script>` tags into a custom

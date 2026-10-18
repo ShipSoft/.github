@@ -29,12 +29,12 @@ HTML_COLORSTYLE_GAMMA  = 113
 
 HTML_FOOTER            = $(SHIP_DOXYGEN_THEME)/footer.html
 
-HTML_EXTRA_STYLESHEET  = $(SHIP_DOXYGEN_THEME)/doxygen-awesome.css \
+HTML_EXTRA_STYLESHEET += $(SHIP_DOXYGEN_THEME)/doxygen-awesome.css \
                          $(SHIP_DOXYGEN_THEME)/doxygen-awesome-sidebar-only.css \
                          $(SHIP_DOXYGEN_THEME)/doxygen-awesome-sidebar-only-darkmode-toggle.css \
                          $(SHIP_DOXYGEN_THEME)/ship-doxygen.css
 
-HTML_EXTRA_FILES       = $(SHIP_DOXYGEN_THEME)/doxygen-awesome-darkmode-toggle.js \
+HTML_EXTRA_FILES      += $(SHIP_DOXYGEN_THEME)/doxygen-awesome-darkmode-toggle.js \
                          $(SHIP_DOXYGEN_THEME)/doxygen-awesome-fragment-copy-button.js \
                          $(SHIP_DOXYGEN_THEME)/doxygen-awesome-paragraph-link.js \
                          $(SHIP_DOXYGEN_THEME)/doxygen-awesome-interactive-toc.js \
