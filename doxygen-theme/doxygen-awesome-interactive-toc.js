@@ -35,9 +35,9 @@ class DoxygenAwesomeInteractiveToc {
                         node: node,
                         headerNode: document.getElementById(id)
                     })
-
-                    document.getElementById("doc-content")?.addEventListener("scroll",this.throttle(DoxygenAwesomeInteractiveToc.update, 100))
                 })
+                // SHiP patch: register the scroll listener once, not once per TOC entry
+                document.getElementById("doc-content")?.addEventListener("scroll",this.throttle(DoxygenAwesomeInteractiveToc.update, 100))
                 DoxygenAwesomeInteractiveToc.update()
             }
         })

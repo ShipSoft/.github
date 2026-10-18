@@ -120,6 +120,20 @@ html {
     --primary-dark-color:  #b7cdff;
     --primary-light-color: #5d86d6;
     --link-color:          var(--ship-blue-soft);
+    /* doxygen-awesome sets these in its own dark rules, so map them again */
+    --page-background-color:            var(--ship-surface);
+    --page-foreground-color:            var(--ship-ink);
+    --page-secondary-foreground-color:  var(--ship-ink-muted);
+    --separator-color:                  var(--ship-hairline);
+    --side-nav-background:              var(--ship-surface-raised);
+    --code-background:                  var(--ship-surface-code);
+    --fragment-background:              var(--ship-surface-code);
+    --fragment-foreground:              var(--ship-ink);
+    --fragment-linenumber-border:       var(--ship-border);
+    --fragment-linenumber-color:        var(--ship-ink-muted);
+    --tablehead-background:             var(--ship-surface-raised);
+    --blockquote-background:            var(--ship-surface-raised);
+    --blockquote-foreground:            var(--ship-ink-muted);
     --header-background:   var(--ship-blue-deep);
     --fragment-linenumber-background: #121b30;
     --odd-color:           rgba(255, 255, 255, 0.03);
@@ -166,6 +180,20 @@ html.dark-mode {
   --primary-dark-color:  #b7cdff;
   --primary-light-color: #5d86d6;
   --link-color:          var(--ship-blue-soft);
+  /* doxygen-awesome sets these in its own dark rules, so map them again */
+  --page-background-color:            var(--ship-surface);
+  --page-foreground-color:            var(--ship-ink);
+  --page-secondary-foreground-color:  var(--ship-ink-muted);
+  --separator-color:                  var(--ship-hairline);
+  --side-nav-background:              var(--ship-surface-raised);
+  --code-background:                  var(--ship-surface-code);
+  --fragment-background:              var(--ship-surface-code);
+  --fragment-foreground:              var(--ship-ink);
+  --fragment-linenumber-border:       var(--ship-border);
+  --fragment-linenumber-color:        var(--ship-ink-muted);
+  --tablehead-background:             var(--ship-surface-raised);
+  --blockquote-background:            var(--ship-surface-raised);
+  --blockquote-foreground:            var(--ship-ink-muted);
   --header-background:   var(--ship-blue-deep);
   --fragment-linenumber-background: #121b30;
   --odd-color:           rgba(255, 255, 255, 0.03);
