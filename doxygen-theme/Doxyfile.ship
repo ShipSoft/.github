@@ -1,0 +1,47 @@
+# ---------------------------------------------------------------------------
+# SHiP Doxygen theme.
+#
+#   The shared ShipSoft/.github Doxygen workflows append
+#
+#       @INCLUDE = $(SHIP_DOXYGEN_THEME)/Doxyfile.ship
+#
+#   to the caller's Doxyfile, with SHIP_DOXYGEN_THEME set to this folder.
+#   README.md next to this file explains how to use it locally.
+#
+#   This file only sets the HTML look. PROJECT_NAME, PROJECT_BRIEF, INPUT etc.
+#   stay in the project's own Doxyfile.
+# ---------------------------------------------------------------------------
+
+PROJECT_LOGO           = $(SHIP_DOXYGEN_THEME)/img/ship-symbol-white.png
+
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+HTML_DYNAMIC_MENUS     = YES
+
+# Doxygen's own colour engine: match CERN blue so anything the stylesheet
+# does not cover (e.g. generated images) stays on-brand. HTML_COLORSTYLE
+# needs Doxygen >= 1.9.5; delete that line for older versions.
+HTML_COLORSTYLE        = LIGHT
+HTML_COLORSTYLE_HUE    = 222
+HTML_COLORSTYLE_SAT    = 255
+HTML_COLORSTYLE_GAMMA  = 113
+
+HTML_FOOTER            = $(SHIP_DOXYGEN_THEME)/footer.html
+
+HTML_EXTRA_STYLESHEET  = $(SHIP_DOXYGEN_THEME)/doxygen-awesome.css \
+                         $(SHIP_DOXYGEN_THEME)/doxygen-awesome-sidebar-only.css \
+                         $(SHIP_DOXYGEN_THEME)/doxygen-awesome-sidebar-only-darkmode-toggle.css \
+                         $(SHIP_DOXYGEN_THEME)/ship-doxygen.css
+
+HTML_EXTRA_FILES       = $(SHIP_DOXYGEN_THEME)/doxygen-awesome-darkmode-toggle.js \
+                         $(SHIP_DOXYGEN_THEME)/doxygen-awesome-fragment-copy-button.js \
+                         $(SHIP_DOXYGEN_THEME)/doxygen-awesome-paragraph-link.js \
+                         $(SHIP_DOXYGEN_THEME)/doxygen-awesome-interactive-toc.js \
+                         $(SHIP_DOXYGEN_THEME)/doxygen-awesome-tabs.js \
+                         $(SHIP_DOXYGEN_THEME)/img/favicon-192.png \
+                         $(SHIP_DOXYGEN_THEME)/img/ship-symbol-black.png
+
+# Graphs: SVG scales on high-DPI screens and inherits nothing odd in dark mode.
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = NO

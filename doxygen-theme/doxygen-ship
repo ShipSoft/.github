@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Run Doxygen on a project's Doxyfile with the SHiP theme applied.
+#
+#   doxygen-ship [Doxyfile]     (default: doxygen/Doxyfile)
+#
+# Run it from the directory the Doxyfile's paths are relative to, usually the
+# repository root. The theme's settings are appended after the project's, so
+# they take precedence for the HTML options they set.
+set -euo pipefail
+
+doxyfile=${1:-doxygen/Doxyfile}
+SHIP_DOXYGEN_THEME=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+export SHIP_DOXYGEN_THEME
+
+{
+  cat "$doxyfile"
+  printf '\n@INCLUDE = %s/Doxyfile.ship\n' "$SHIP_DOXYGEN_THEME"
+} | doxygen -
