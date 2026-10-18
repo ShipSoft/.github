@@ -111,10 +111,38 @@ Inputs: `packages` (JSON array, required), `tasks` (JSON array, default
 `https://prefix.dev/ship-experiment/nightly`), `lfs`, `runs-on`, `env-vars`,
 `ccache` (default `true`).
 
+### `doxygen-pages.yml`
+
+Generates Doxygen HTML and deploys it with GitHub Pages actions. The caller
+repository's Pages source must be set to GitHub Actions.
+
+```yaml
+name: Doxygen Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  docs:
+    uses: ShipSoft/.github/.github/workflows/doxygen-pages.yml@main
+```
+
+Inputs: `doxyfile` (default `doxygen/Doxyfile`), `html-dir` (default
+`doxygen/html`), `theme` (default `true`), `theme-ref` (default `main`).
+
+Both Doxygen workflows run Doxygen from the repository root and apply the SHiP
+theme from [`doxygen-theme/`](doxygen-theme) unless `theme: false` is passed.
+The theme's settings are appended after the caller's Doxyfile, so it sets the
+logo, footer, stylesheets, colours and graph format, and the Doxyfile keeps
+everything else. `theme-ref` picks the ref of this repository the theme is
+taken from. The [theme README](doxygen-theme/README.md) explains how to build
+with it locally.
+
 ### `doxygen-gh-pages.yml`
 
 Generates Doxygen HTML and publishes it to the `gh-pages` branch,
-preserving auxiliary directories such as `plots/`.
+preserving auxiliary directories such as `plots/`. It applies the SHiP theme
+like `doxygen-pages.yml`.
 
 ```yaml
 name: Doxygen
@@ -130,7 +158,7 @@ jobs:
       preserve: plots
 ```
 
-Inputs: `doxyfile`, `html-dir`, `preserve`.
+Inputs: `doxyfile`, `html-dir`, `preserve`, `theme`, `theme-ref`.
 
 ### `prek.yml`
 
