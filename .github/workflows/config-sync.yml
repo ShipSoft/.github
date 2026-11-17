@@ -24,10 +24,21 @@ on:
         description: Label to apply to the PR
         type: string
         default: config-sync
+    secrets:
+      app-private-key:
+        description: >-
+          Private key of the ship's mate GitHub App (pass
+          secrets.APP_PRIVATE_KEY). The PR is then opened by ship's mate, so
+          the caller's CI runs on it. Without it the PR is opened with
+          GITHUB_TOKEN, and GitHub does not start workflows for those.
+        required: false
 
 jobs:
   config-sync:
     runs-on: ubuntu-latest
+    # Secrets can't be tested in `if:`, so expose whether the key was passed.
+    env:
+      HAS_APP_KEY: ${{ secrets.app-private-key != '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
@@ -43,9 +54,32 @@ jobs:
             cp ".shared-configs/sync/$f" "./$f"
           done <<< "$FILES"
           rm -rf .shared-configs
+      # PRs opened with GITHUB_TOKEN don't trigger workflows, so CI would
+      # never start on them. A ship's mate token avoids that. The client ID
+      # is an org variable, readable here without the caller passing it.
+      - name: Create app token
+        id: app-token
+        if: env.HAS_APP_KEY == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Resolve app identity
+        id: identity
+        if: steps.app-token.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          echo "user=${APP_SLUG}[bot] <${id}+${APP_SLUG}[bot]@users.noreply.github.com>" >> "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          author: ${{ steps.identity.outputs.user || format('{0} <{1}+{0}@users.noreply.github.com>', github.actor, github.actor_id) }}
+          committer: ${{ steps.identity.outputs.user || 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' }}
           commit-message: "chore: sync shared configs"
           title: Sync shared configs
           body: >

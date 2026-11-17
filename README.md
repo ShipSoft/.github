@@ -25,9 +25,20 @@ jobs:
     uses: ShipSoft/.github/.github/workflows/pixi-lock-update.yml@main
     with:
       base: main         # or master
+    secrets:
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 ```
 
 Inputs: `base` (required), `add-paths`, `pr-branch`, `pr-label`.
+Secrets: `app-private-key` (optional, see below).
+
+Pass `app-private-key` so the PR is opened by the ship's mate GitHub App.
+GitHub doesn't start workflows for PRs opened with `GITHUB_TOKEN`, so without
+the key CI never runs on the PR until someone pushes to it or starts it by
+hand. The app's client ID comes from the org variable `APP_CLIENT_ID`; only the
+private key has to be passed, because a reusable workflow can't read the
+caller's secrets otherwise. Without the key the workflow falls back to
+`GITHUB_TOKEN`. `config-sync.yml` works the same way.
 
 ### `pixi-cmake-build.yml`
 
@@ -381,7 +392,12 @@ jobs:
     uses: ShipSoft/.github/.github/workflows/config-sync.yml@main
     with:
       base: main         # or master
+    secrets:
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 ```
+
+As with `pixi-lock-update.yml`, `app-private-key` makes ship's mate open the PR
+so that CI runs on it.
 
 Like `prek.yml`, the workflow requests no permissions itself: the caller job
 must grant `contents: write` (to push the branch) and `pull-requests: write`
