@@ -98,6 +98,9 @@ jobs:
 
       - name: Build with rattler-build
         env:
+          # Collapsible log groups per build and error annotations.
+          RATTLER_BUILD_ENABLE_GITHUB_INTEGRATION: 'true'
+          RATTLER_BUILD_COLOR: always
           INPUT_RECIPE_DIR: ${{ inputs.recipe-dir }}
           INPUT_RECIPE: ${{ inputs.recipe }}
           INPUT_FORCE: ${{ inputs.force }}
