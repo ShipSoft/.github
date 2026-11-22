@@ -72,6 +72,68 @@ Inputs: `tasks` (JSON array, default `'["test"]'`), `lfs`, `runs-on`,
 `cache`, `env-vars`, `artifact-name`, `artifact-path`,
 `artifact-retention-days`, `ccache` (default `true`), `ccache-key`.
 
+### `pixi-coverage.yml`
+
+Builds the project with coverage instrumentation, runs its tests, and uploads
+the report to [Codecov](https://app.codecov.io/gh/ShipSoft). It is meant to run
+as its own job next to `pixi-cmake-build.yml`, because an instrumented `-O0`
+build is slower and should not hold up the required build check.
+
+```yaml
+name: Coverage
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: coverage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  coverage:
+    permissions:
+      contents: read
+      id-token: write
+    uses: ShipSoft/.github/.github/workflows/pixi-coverage.yml@main
+```
+
+Run it on pushes to `main` as well as on pull requests. Codecov compares each
+pull request with the last upload from its base branch.
+
+The upload authenticates with a GitHub OIDC token, so the caller job has to
+grant `id-token: write` and the repository needs no Codecov token. The Codecov
+GitHub app must be installed for the repository. Pull requests from forks get
+no OIDC token, and Codecov accepts their uploads without one because our
+repositories are public.
+
+The workflow runs pixi tasks in a dedicated environment, so the repository has
+to provide:
+
+- a pixi environment called `coverage` (or pass `environment`) that adds
+  `gcovr` to the default features, in the default solve group so it builds
+  against the same dependencies;
+- a task called `coverage-report` (or pass `tasks`) that configures an
+  instrumented build in its own build directory, runs the tests and writes
+  the report. With GCC that means `--coverage` in the compile and link flags
+  and, for code that runs on several threads, `-fprofile-update=atomic`;
+- the report in `coverage/` (or pass `report-dir`): Cobertura XML in
+  `coverage.xml`, which is uploaded, plus an optional `summary.md`, which is
+  added to the job summary. The whole directory, including any HTML report, is
+  also uploaded as the `coverage-report` artifact.
+
+aegir's `pixi.toml` has a complete example: its `coverage` feature, the
+`coverage-*` tasks, and the `gcovr` call that writes all three outputs.
+
+Coverage does not gate pull requests yet. The upload never fails the job
+unless `fail-on-upload-error` is set, and the shared `.codecov.yml` (synced by
+`config-sync.yml`) marks Codecov's project and patch statuses as
+informational. Gating later means changing the `patch` status there.
+
+Inputs: `environment` (default `coverage`), `tasks` (default
+`'["coverage-report"]'`), `report-dir` (default `coverage`), `flags`, `lfs`,
+`runs-on`, `env-vars`, `fail-on-upload-error` (default `false`).
+
 ### `pixi-main-deps.yml`
 
 Builds the caller against the `main` branch of a ShipSoft library before that
@@ -415,6 +477,8 @@ The default `files` list is the **universal set** — currently just
         .clang-tidy
         cliff.toml
 ```
+
+Repos that use `pixi-coverage.yml` also add `.codecov.yml` to the list.
 
 The canonical copies live in `sync/`, and that is where they must be edited.
 This repository carries the policy like any other, but its root `AI_POLICY.md`
