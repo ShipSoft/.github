@@ -1,0 +1,116 @@
+name: Pixi coverage (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: |
+          pixi environment that provides gcovr and the coverage tasks. See the
+          README for the contract a repository has to follow.
+        type: string
+        default: coverage
+      tasks:
+        description: |
+          JSON array of pixi tasks run in order in `environment`. The last one
+          has to leave a Cobertura report at `<report-dir>/coverage.xml`.
+        type: string
+        default: '["coverage-report"]'
+      report-dir:
+        description: |
+          Directory the tasks write the report to. It must hold coverage.xml,
+          and may hold summary.md (appended to the job summary) and html/.
+        type: string
+        default: coverage
+      flags:
+        description: Codecov flag for the upload (e.g. to tell components apart)
+        type: string
+        default: ''
+      lfs:
+        description: Fetch git-lfs files during checkout
+        type: boolean
+        default: false
+      runs-on:
+        description: GitHub runner label
+        type: string
+        default: ubuntu-latest
+      env-vars:
+        description: Newline-separated KEY=VALUE env vars exported before tasks run
+        type: string
+        default: ''
+      fail-on-upload-error:
+        description: |
+          Fail the job when the Codecov upload fails. Off by default, so a
+          Codecov outage never turns a pull request red.
+        type: boolean
+        default: false
+
+jobs:
+  coverage:
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      # Codecov authenticates the upload with a GitHub OIDC token, so no
+      # upload token has to be stored in each repository.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: ${{ inputs.lfs }}
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          environments: ${{ inputs.environment }}
+      - uses: hendrikmuhs/ccache-action@v1
+        with:
+          # Separate from the normal build's cache: the instrumented objects
+          # never match it.
+          key: ${{ inputs.runs-on }}-coverage
+      - name: Route compilation through ccache
+        run: |
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+      - name: Export env vars
+        if: inputs.env-vars != ''
+        env:
+          ENV_VARS: ${{ inputs.env-vars }}
+        run: |
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "$line" >> "$GITHUB_ENV"
+          done <<< "$ENV_VARS"
+      - name: Run pixi tasks
+        env:
+          TASKS_JSON: ${{ inputs.tasks }}
+          PIXI_ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          echo "$TASKS_JSON" | jq -r '.[]' | while IFS= read -r task; do
+            echo "::group::pixi run --locked -e $PIXI_ENV $task"
+            # shellcheck disable=SC2086 # intentional word-splitting for positional task args
+            pixi run --locked -e "$PIXI_ENV" $task </dev/null
+            echo "::endgroup::"
+          done
+      - name: Coverage summary
+        env:
+          REPORT_DIR: ${{ inputs.report-dir }}
+        run: |
+          if [ -f "$REPORT_DIR/summary.md" ]; then
+            cat "$REPORT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: ${{ inputs.report-dir }}
+          retention-days: 14
+          if-no-files-found: error
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ${{ inputs.report-dir }}/coverage.xml
+          flags: ${{ inputs.flags }}
+          disable_search: true
+          # Pull requests from forks get no OIDC token; Codecov accepts those
+          # uploads without one for public repositories.
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
+          fail_ci_if_error: ${{ inputs.fail-on-upload-error }}
