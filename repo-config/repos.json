@@ -19,8 +19,10 @@
     "aegir":                       {"tier": "full",   "codeowners": false},
     "aegir-genie":                 {"tier": "full",   "codeowners": false},
     "data-model":                  {"tier": "full",   "codeowners": false},
+    "field_maps":                  {"tier": "full",   "codeowners": false},
     "field_service":               {"tier": "full",   "codeowners": false},
     "geometry_service":            {"tier": "full",   "codeowners": false},
+    "integration-tests":           {"tier": "full",   "codeowners": false},
     "ship-ci-metrics":             {"tier": "full",   "codeowners": false},
     "ship-conda-recipes":          {"tier": "full",   "codeowners": false},
     "ship-random":                 {"tier": "full",   "codeowners": false},
@@ -29,6 +31,7 @@
     ".github":                     {"tier": "none",   "codeowners": false},
     "Trout":                       {"tier": "none",   "codeowners": false},
     "htcondor_submission_scripts": {"tier": "none",   "codeowners": false},
+    "planning":                    {"tier": "none",   "codeowners": false},
     "tutorials":                   {"tier": "none",   "codeowners": false}
   }
 }
