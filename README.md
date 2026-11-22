@@ -120,7 +120,8 @@ to provide:
 - the report in `coverage/` (or pass `report-dir`): Cobertura XML in
   `coverage.xml`, which is uploaded, plus an optional `summary.md`, which is
   added to the job summary. The whole directory, including any HTML report, is
-  also uploaded as the `coverage-report` artifact.
+  also uploaded as an artifact, named `coverage-report` unless you pass
+  `artifact-name`.
 
 aegir's `pixi.toml` has a complete example: its `coverage` feature, the
 `coverage-*` tasks, and the `gcovr` call that writes all three outputs.
@@ -131,7 +132,8 @@ unless `fail-on-upload-error` is set, and the shared `.codecov.yml` (synced by
 informational. Gating later means changing the `patch` status there.
 
 Inputs: `environment` (default `coverage`), `tasks` (default
-`'["coverage-report"]'`), `report-dir` (default `coverage`), `flags`, `lfs`,
+`'["coverage-report"]'`), `report-dir` (default `coverage`), `artifact-name`
+(default `coverage-report`), `flags`, `lfs`,
 `runs-on`, `env-vars`, `fail-on-upload-error` (default `false`).
 
 ### `pixi-main-deps.yml`

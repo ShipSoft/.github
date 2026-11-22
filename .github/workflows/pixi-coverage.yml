@@ -21,6 +21,12 @@ on:
           and may hold summary.md (appended to the job summary) and html/.
         type: string
         default: coverage
+      artifact-name:
+        description: |
+          Name of the uploaded report artifact. Callers that run this workflow
+          more than once in a run (components, matrix) pass distinct names.
+        type: string
+        default: coverage-report
       flags:
         description: Codecov flag for the upload (e.g. to tell components apart)
         type: string
@@ -52,6 +58,9 @@ jobs:
       # Codecov authenticates the upload with a GitHub OIDC token, so no
       # upload token has to be stored in each repository.
       id-token: write
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
@@ -100,12 +109,15 @@ jobs:
       - name: Upload report artifact
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-report
+          name: ${{ inputs.artifact-name }}
           path: ${{ inputs.report-dir }}
           retention-days: 14
           if-no-files-found: error
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
+        # fail_ci_if_error doesn't cover every failure (e.g. getting the OIDC
+        # token), so keep the job green here too unless strict mode is on.
+        continue-on-error: ${{ !inputs.fail-on-upload-error }}
         with:
           files: ${{ inputs.report-dir }}/coverage.xml
           flags: ${{ inputs.flags }}
