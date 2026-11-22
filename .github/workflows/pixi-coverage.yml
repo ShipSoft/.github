@@ -114,7 +114,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         # fail_ci_if_error doesn't cover every failure (e.g. getting the OIDC
         # token), so keep the job green here too unless strict mode is on.
         continue-on-error: ${{ !inputs.fail-on-upload-error }}
