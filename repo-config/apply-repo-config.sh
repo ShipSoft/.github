@@ -2,8 +2,8 @@
 #
 # Bring ShipSoft repository settings in line with the canonical config in this
 # directory: merge-method toggles, and the "main-1"/"main-2" branch rulesets
-# that give every repo a merge queue, a review requirement and a linear
-# history.
+# that give every repo a merge queue, two approving reviews (a code owner's
+# among them where there is a CODEOWNERS file) and a linear history.
 #
 # Dry-run by default; --apply writes. Re-running is safe and is also the drift
 # check. Needs `gh` authenticated as a user with admin on the target repos, and
@@ -58,16 +58,11 @@ normalise_ruleset() {
   }'
 }
 
-# The review ruleset is the only per-repo variation: which checks are required,
-# and whether a code-owner review is needed.
+# The review ruleset varies per repo only in which checks are required.
 render_review() {
-  local tier=$1 codeowners=$2
-  jq --arg tier "$tier" --argjson codeowners "$codeowners" '
-    .rules |= map(
-      if .type == "pull_request"
-      then .parameters.require_code_owner_review = $codeowners
-      else . end)
-    | if $tier == "none" then
+  local tier=$1
+  jq --arg tier "$tier" '
+    if $tier == "none" then
         .rules |= map(select(.type != "required_status_checks"))
       elif $tier == "single" then
         .rules |= map(if .type == "required_status_checks" then
@@ -126,8 +121,7 @@ for repo in $(jq -r '.repos | keys[]' "$config"); do
   fi
 
   tier=$(jq -r --arg r "$repo" '.repos[$r].tier' "$config")
-  codeowners=$(jq -r --arg r "$repo" '.repos[$r].codeowners' "$config")
-  echo "=== $org/$repo (tier: $tier, codeowners: $codeowners)"
+  echo "=== $org/$repo (tier: $tier)"
 
   repo_json=$(gh api "repos/$org/$repo")
   default_branch=$(jq -r .default_branch <<<"$repo_json")
@@ -150,7 +144,7 @@ for repo in $(jq -r '.repos | keys[]' "$config"); do
   #    actually gate the queue, no protection may be touched below, because
   #    removing the superseded rules would leave the branch unprotected with
   #    no replacement to create.
-  want_review=$(render_review "$tier" "$codeowners")
+  want_review=$(render_review "$tier")
   missing=()
   unqueued=()
   if [ "$tier" != none ]; then

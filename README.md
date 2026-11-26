@@ -707,12 +707,13 @@ Each repository gets two rulesets on its default branch, following the split
 FairShip already used:
 
 - `main-1`: no deletion, no force-push. No bypass for anyone.
-- `main-2`: linear history, merge queue (rebase, all-green grouping), one
-  approving review, resolved conversations, and squash/rebase as the only merge
+- `main-2`: linear history, merge queue (rebase, all-green grouping), two
+  approving reviews (one from a code owner where the repository has a
+  CODEOWNERS file), resolved conversations, and squash/rebase as the only merge
   methods. Repository admins may bypass this one.
 
-The split matters: an admin can land an urgent fix without a second pair of
-eyes, while nobody at all can rewrite or delete the default branch.
+The split matters: an admin can land an urgent fix without waiting for
+reviewers, while nobody at all can rewrite or delete the default branch.
 
 Repository-level toggles disable merge commits outright. They also enable
 auto-merge, so a pull request can be handed to the queue before its checks
@@ -767,9 +768,10 @@ ruleset does.
 
 ### CODEOWNERS
 
-`require_code_owner_review` follows the `codeowners` flag in `repos.json`, which
-mirrors whether the repository actually has a CODEOWNERS file. When one lands,
-flip the flag and re-run.
+`require_code_owner_review` is on for every repository. GitHub ignores it
+where there is no CODEOWNERS file, so a repository picks it up as soon as one
+lands, with nothing to change here. A code owner's approval counts towards the
+two required reviews.
 
 ## Versioning
 
